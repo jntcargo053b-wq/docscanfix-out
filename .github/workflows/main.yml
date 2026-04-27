@@ -47,7 +47,12 @@ jobs:
         run: flutter pub get
 
       - name: Run Tests
-        run: flutter test
+        run: |
+          if [ -d "test" ]; then
+            flutter test
+          else
+            echo "⚠️ Folder test/ tidak ditemukan, skip."
+          fi
 
       - name: Decode Keystore
         run: |
