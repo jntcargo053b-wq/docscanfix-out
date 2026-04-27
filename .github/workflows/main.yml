@@ -3,6 +3,8 @@ name: Build APK
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   build:
@@ -21,7 +23,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.41.7'
+          flutter-version: '3.24.5'   # fix: 3.41.7 tidak valid
           channel: stable
           cache: true
 
@@ -44,10 +46,18 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Run Tests
+        run: flutter test
+
       - name: Decode Keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d ' \n\r' | base64 --decode > android/app/keystore.jks
+
+      - name: Validate Keystore
+        run: |
+          keytool -list -keystore android/app/keystore.jks \
+            -storepass ${{ secrets.KEY_STORE_PASSWORD }} \
+            -noprompt
 
       - name: Build APK Release
         run: |
@@ -68,4 +78,9 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-      
+      - name: Upload Debug Info
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-info-${{ github.sha }}
+          path: debug-info/
+          retention-days: 30
