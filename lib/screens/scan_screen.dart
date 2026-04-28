@@ -226,24 +226,22 @@ class _ScanScreenState extends State<ScanScreen> {
     for (int i = 0; i < paths.length; i++) {
       final file = File(paths[i]);
       if (!await file.exists()) {
-        throw Exception('File gambar tidak ditemukan: \${paths[i]}');
+        throw Exception('File gambar tidak ditemukan: ${paths[i]}');
       }
 
       final bytes = await file.readAsBytes();
-      final fileName =
-          'DocScan_\${DateTime.now().millisecondsSinceEpoch}_\${i + 1}';
+      // saver_gallery 3.0.10 tidak punya parameter 'name' di saveImage
       final result = await SaverGallery.saveImage(
         bytes,
         quality: 95,
-        name: fileName,
         androidRelativePath: 'Pictures/DocScan',
         skipIfExists: false,
       );
 
       if (!result.isSuccess) {
         throw Exception(
-          'Gagal menyimpan foto \${i + 1} ke gallery. '
-          'Detail: \${result.errorMessage}',
+          'Gagal menyimpan foto ${i + 1} ke gallery. '
+          'Detail: ${result.errorMessage}',
         );
       }
       savedCount++;
@@ -291,7 +289,6 @@ class _ScanScreenState extends State<ScanScreen> {
       });
 
       if (mounted) {
-        // Tawarkan share PDF
         showDialog(
           context: context,
           builder: (_) => AlertDialog(
@@ -650,7 +647,6 @@ class _ScanScreenState extends State<ScanScreen> {
   Widget _buildActionButtons() {
     return Column(
       children: [
-        // Tombol utama — Simpan foto ke gallery
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
@@ -665,14 +661,12 @@ class _ScanScreenState extends State<ScanScreen> {
           ),
         ),
         const Gap(12),
-        // Tombol opsional — Export PDF
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: _scannedImages.isEmpty || _isProcessing
                 ? null
                 : () {
-                    // Tampilkan opsi include text OCR sebelum export
                     showDialog(
                       context: context,
                       builder: (_) => AlertDialog(
