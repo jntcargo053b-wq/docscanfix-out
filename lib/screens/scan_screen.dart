@@ -209,20 +209,22 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Future<void> _saveToGallery(List<String> paths, String albumName) async {
-    // Request akses gallery
-    final hasAccess = await Gal.hasAccess();
+    // Untuk save ke album tertentu, WAJIB pakai toAlbum: true
+    final hasAccess = await Gal.hasAccess(toAlbum: true);
     if (!hasAccess) {
-      await Gal.requestAccess();
+      await Gal.requestAccess(toAlbum: true);
+      // Cek ulang apakah user sudah grant permission
+      final granted = await Gal.hasAccess(toAlbum: true);
+      if (!granted) {
+        throw Exception('Izin akses gallery ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin dan aktifkan akses Media.');
+      }
     }
 
+    int failCount = 0;
     for (int i = 0; i < paths.length; i++) {
-      try {
-        final file = File(paths[i]);
-        if (!await file.exists()) continue;
-        await Gal.putImage(paths[i], album: 'DocScan');
-      } catch (e) {
-        // Lanjut ke foto berikutnya jika satu gagal
-      }
+      final file = File(paths[i]);
+      if (!await file.exists()) continue;
+      await Gal.putImage(paths[i], album: albumName);
     }
   }
 
