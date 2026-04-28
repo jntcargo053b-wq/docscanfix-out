@@ -234,6 +234,7 @@ class _ScanScreenState extends State<ScanScreen> {
       final result = await SaverGallery.saveImage(
         bytes,
         quality: 95,
+        fileName: 'DocScan_${DateTime.now().millisecondsSinceEpoch}_${i + 1}',
         androidRelativePath: 'Pictures/DocScan',
         skipIfExists: false,
       );
