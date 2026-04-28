@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
-import 'package:gal/gal.dart';
+import 'package:image_gallery_saver/image_gallery_saver.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/scanner_service.dart';
 import '../services/ocr_service.dart';
@@ -209,22 +209,60 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Future<void> _saveToGallery(List<String> paths, String albumName) async {
-    // Untuk save ke album tertentu, WAJIB pakai toAlbum: true
-    final hasAccess = await Gal.hasAccess(toAlbum: true);
-    if (!hasAccess) {
-      await Gal.requestAccess(toAlbum: true);
-      // Cek ulang apakah user sudah grant permission
-      final granted = await Gal.hasAccess(toAlbum: true);
-      if (!granted) {
-        throw Exception('Izin akses gallery ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin dan aktifkan akses Media.');
+    // Android < 10 butuh WRITE_EXTERNAL_STORAGE
+    if (Platform.isAndroid) {
+      final sdkInt = await _getAndroidSdkVersion();
+      if (sdkInt < 29) {
+        final status = await Permission.storage.request();
+        if (!status.isGranted) {
+          throw Exception(
+            'Izin storage ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin > Storage.',
+          );
+        }
       }
     }
 
-    int failCount = 0;
+    int savedCount = 0;
     for (int i = 0; i < paths.length; i++) {
       final file = File(paths[i]);
-      if (!await file.exists()) continue;
-      await Gal.putImage(paths[i], album: albumName);
+      if (!await file.exists()) {
+        throw Exception('File gambar tidak ditemukan: \${paths[i]}');
+      }
+
+      final bytes = await file.readAsBytes();
+      final fileName =
+          'DocScan_\${DateTime.now().millisecondsSinceEpoch}_\${i + 1}';
+      final result = await ImageGallerySaver.saveImage(
+        bytes,
+        name: fileName,
+        quality: 95,
+      );
+
+      // result bisa Map atau String tergantung platform
+      final isSuccess = result is Map
+          ? (result['isSuccess'] == true)
+          : (result != null && result.toString().isNotEmpty);
+
+      if (!isSuccess) {
+        throw Exception(
+          'Gagal menyimpan foto \${i + 1} ke gallery. '
+          'Detail: \$result',
+        );
+      }
+      savedCount++;
+    }
+
+    if (savedCount == 0) {
+      throw Exception('Tidak ada foto yang berhasil disimpan ke gallery.');
+    }
+  }
+
+  Future<int> _getAndroidSdkVersion() async {
+    try {
+      final result = await Process.run('getprop', ['ro.build.version.sdk']);
+      return int.tryParse(result.stdout.toString().trim()) ?? 29;
+    } catch (_) {
+      return 29;
     }
   }
 
