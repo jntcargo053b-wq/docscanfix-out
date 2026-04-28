@@ -2,7 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
-import 'package:image_gallery_saver/image_gallery_saver.dart';
+import 'package:saver_gallery/saver_gallery.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/scanner_service.dart';
 import '../services/ocr_service.dart';
@@ -232,21 +232,18 @@ class _ScanScreenState extends State<ScanScreen> {
       final bytes = await file.readAsBytes();
       final fileName =
           'DocScan_\${DateTime.now().millisecondsSinceEpoch}_\${i + 1}';
-      final result = await ImageGallerySaver.saveImage(
+      final result = await SaverGallery.saveImage(
         bytes,
-        name: fileName,
         quality: 95,
+        name: fileName,
+        androidRelativePath: 'Pictures/DocScan',
+        skipIfExists: false,
       );
 
-      // result bisa Map atau String tergantung platform
-      final isSuccess = result is Map
-          ? (result['isSuccess'] == true)
-          : (result != null && result.toString().isNotEmpty);
-
-      if (!isSuccess) {
+      if (!result.isSuccess) {
         throw Exception(
           'Gagal menyimpan foto \${i + 1} ke gallery. '
-          'Detail: \$result',
+          'Detail: \${result.errorMessage}',
         );
       }
       savedCount++;
