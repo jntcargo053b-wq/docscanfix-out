@@ -1,21 +1,53 @@
 name: docscan
-description: Document Scanner Fix
+description: Document Scanner App with OCR and PDF Export
+publish_to: 'none'
+version: 1.0.0+1
+
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
+
+  # Scanner
   cunning_document_scanner: ^1.2.3
-  permission_handler: ^11.3.1
+  image_picker: ^1.0.7
+
+  # OCR
+  google_mlkit_text_recognition: ^0.15.1
+
+  # PDF
+  pdf: ^3.10.8
+  printing: ^5.12.0
+
+  # Share & Open
+  share_plus: ^10.1.4
+  open_file: ^3.3.2
+
+  # Gallery Save
   saver_gallery: ^3.0.6
-  flutter_animate: ^4.5.0   # ← wajib untuk animasi OCR section
-  gap: ^3.0.1                # ← wajib untuk Gap widget
-  # ... dependency lainnya sesuai project asli
+
+  # Permission
+  permission_handler: ^11.3.1
+
+  # Image processing
+  image: ^4.1.7
+
+  # Storage / Path
+  path_provider: ^2.1.2
+
+  # UI
+  flutter_animate: ^4.5.0
+  gap: ^3.0.1
+  cupertino_icons: ^1.0.6
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/
