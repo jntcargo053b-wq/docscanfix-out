@@ -209,54 +209,55 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Future<void> _saveToGallery(List<String> paths, String albumName) async {
-    // Android < 10 butuh WRITE_EXTERNAL_STORAGE
-    if (Platform.isAndroid) {
-      final sdkInt = await _getAndroidSdkVersion();
-      if (sdkInt < 29) {
-        final status = await Permission.storage.request();
-        if (!status.isGranted) {
-          throw Exception(
-            'Izin storage ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin > Storage.',
-          );
-        }
-      }
-    }
+    await _requestGalleryPermission();
 
-    int savedCount = 0;
     for (int i = 0; i < paths.length; i++) {
       final file = File(paths[i]);
       if (!await file.exists()) {
-        throw Exception('File gambar tidak ditemukan: ${paths[i]}');
+        throw Exception('File tidak ditemukan: ${paths[i]}');
       }
 
-      final bytes = await file.readAsBytes();
-      // saver_gallery 3.0.10 tidak punya parameter 'name' di saveImage
-      final result = await SaverGallery.saveImage(
-        bytes,
-        quality: 95,
-        fileName: 'DocScan_${DateTime.now().millisecondsSinceEpoch}_${i + 1}',
+      final fileName =
+          'DocScan_${DateTime.now().millisecondsSinceEpoch}_${i + 1}';
+
+      final result = await SaverGallery.saveFile(
+        filePath: file.path,
+        fileName: fileName,
         androidRelativePath: 'Pictures/DocScan',
         skipIfExists: false,
       );
 
       if (!result.isSuccess) {
         throw Exception(
-          'Gagal menyimpan foto ${i + 1} ke gallery. '
-          'Detail: ${result.errorMessage}',
+          'Gagal menyimpan foto ${i + 1}: ${result.errorMessage}',
         );
       }
-      savedCount++;
-    }
-
-    if (savedCount == 0) {
-      throw Exception('Tidak ada foto yang berhasil disimpan ke gallery.');
     }
   }
 
-  Future<int> _getAndroidSdkVersion() async {
+  Future<void> _requestGalleryPermission() async {
+    if (!Platform.isAndroid) return;
+    final sdk = await _getSdkVersion();
+    if (sdk >= 33) {
+      final status = await Permission.photos.request();
+      if (!status.isGranted) {
+        throw Exception(
+            'Izin galeri ditolak. Buka Pengaturan > Izin > Media.');
+      }
+    } else if (sdk < 29) {
+      final status = await Permission.storage.request();
+      if (!status.isGranted) {
+        throw Exception(
+            'Izin storage ditolak. Buka Pengaturan > Izin > Storage.');
+      }
+    }
+    // Android 10–12: tidak perlu permission untuk MediaStore
+  }
+
+  Future<int> _getSdkVersion() async {
     try {
-      final result = await Process.run('getprop', ['ro.build.version.sdk']);
-      return int.tryParse(result.stdout.toString().trim()) ?? 29;
+      final r = await Process.run('getprop', ['ro.build.version.sdk']);
+      return int.tryParse(r.stdout.toString().trim()) ?? 29;
     } catch (_) {
       return 29;
     }
