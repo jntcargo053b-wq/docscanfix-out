@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../models/scanned_document.dart';
-import 'image_enhance_service.dart';
 
 class DocumentStorageService {
   static final DocumentStorageService _instance =
@@ -92,16 +91,15 @@ class DocumentStorageService {
     await saveDocuments(docs);
   }
 
-  /// Copy scanned images ke permanent storage + compress + thumbnail
+  /// Copy scanned images ke permanent storage (tanpa processing)
   Future<({List<String> imagePaths, String? thumbnailPath})> saveImages(
     String documentId,
     List<String> tempPaths,
   ) async {
     final dir = await _docsDir;
-    final docDir = Directory('${dir.path}/$documentId');
+    final docDir = Directory('\${dir.path}/\$documentId');
     await docDir.create(recursive: true);
 
-    final enhanceService = ImageEnhanceService();
     final List<String> savedPaths = [];
     String? thumbnailPath;
 
@@ -109,21 +107,13 @@ class DocumentStorageService {
       final tempFile = File(tempPaths[i]);
       if (!await tempFile.exists()) continue;
 
-      // Compress foto — max 2048px, quality 82%
-      final compressedPath = await enhanceService.compress(
-        tempPaths[i],
-        maxDimension: 2048,
-        quality: 82,
-      );
-
-      final newPath = '${docDir.path}/page_${i + 1}.jpg';
-      await File(compressedPath).copy(newPath);
+      // Copy langsung tanpa compress/enhance — jaga kualitas asli
+      final newPath = '\${docDir.path}/page_\${i + 1}.jpg';
+      await tempFile.copy(newPath);
       savedPaths.add(newPath);
 
-      // Generate thumbnail dari foto pertama saja
-      if (i == 0) {
-        thumbnailPath = await enhanceService.generateThumbnail(newPath);
-      }
+      // Thumbnail = path foto pertama (tidak generate terpisah)
+      if (i == 0) thumbnailPath = newPath;
     }
 
     return (imagePaths: savedPaths, thumbnailPath: thumbnailPath);
