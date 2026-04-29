@@ -18,7 +18,7 @@ class ImageEditorScreen extends StatefulWidget {
   State<ImageEditorScreen> createState() => _ImageEditorScreenState();
 }
 
-enum _EditorTab { transform, enhance }
+enum _EditorTab { transform }
 
 class _ImageEditorScreenState extends State<ImageEditorScreen> {
   final _enhanceService = ImageEnhanceService();
@@ -26,7 +26,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
   late String _currentPath;
   late String _originalPath;
   bool _isProcessing = false;
-  bool _autoEnhanced = false;
+
   _EditorTab _activeTab = _EditorTab.transform;
 
   // Crop state
@@ -35,12 +35,6 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
   Offset _cropEnd = Offset.zero;
   final GlobalKey _imageKey = GlobalKey();
 
-  // Enhance sliders
-  double _brightness = 1.0;
-  double _contrast = 1.0;
-  double _saturation = 1.0;
-  bool _sharpen = false;
-  bool _grayscale = false;
 
   @override
   void initState() {
@@ -115,57 +109,9 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     }
   }
 
-  // ── ENHANCE ────────────────────────────────────────
-
-  Future<void> _applyAutoEnhance() async {
-    setState(() => _isProcessing = true);
-    try {
-      final enhanced = await _enhanceService.autoEnhance(_originalPath);
-      setState(() {
-        _currentPath = enhanced;
-        _autoEnhanced = true;
-        _brightness = 1.0;
-        _contrast = 1.0;
-        _saturation = 1.0;
-        _sharpen = false;
-        _grayscale = false;
-      });
-    } catch (e) {
-      _showError('Gagal auto enhance: $e');
-    } finally {
-      setState(() => _isProcessing = false);
-    }
-  }
-
-  Future<void> _applyManual() async {
-    setState(() => _isProcessing = true);
-    try {
-      final base = _autoEnhanced ? _currentPath : _originalPath;
-      final enhanced = await _enhanceService.manualEnhance(
-        base,
-        brightness: _brightness,
-        contrast: _contrast,
-        saturation: _saturation,
-        sharpen: _sharpen,
-        grayscale: _grayscale,
-      );
-      setState(() => _currentPath = enhanced);
-    } catch (e) {
-      _showError('Gagal apply: $e');
-    } finally {
-      setState(() => _isProcessing = false);
-    }
-  }
-
   void _resetToOriginal() {
     setState(() {
       _currentPath = _originalPath;
-      _autoEnhanced = false;
-      _brightness = 1.0;
-      _contrast = 1.0;
-      _saturation = 1.0;
-      _sharpen = false;
-      _grayscale = false;
       _isCropping = false;
       _cropStart = Offset.zero;
       _cropEnd = const Offset(1, 1);
@@ -206,79 +152,12 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
       ),
       body: Column(
         children: [
-          // Tab selector
-          _buildTabBar(),
-
           // Preview foto
           Expanded(child: _buildPreview()),
 
           // Controls
           _buildControls(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTabBar() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          _buildTabButton(
-            label: 'Crop & Putar',
-            icon: Icons.crop_rotate,
-            tab: _EditorTab.transform,
-          ),
-          _buildTabButton(
-            label: 'Perjelas',
-            icon: Icons.auto_fix_high,
-            tab: _EditorTab.enhance,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTabButton({
-    required String label,
-    required IconData icon,
-    required _EditorTab tab,
-  }) {
-    final isActive = _activeTab == tab;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() {
-          _activeTab = tab;
-          _isCropping = false;
-        }),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isActive ? AppTheme.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon,
-                  size: 16,
-                  color: isActive ? Colors.black : AppTheme.textSecondary),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isActive ? Colors.black : AppTheme.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -384,9 +263,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
         color: AppTheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: _activeTab == _EditorTab.transform
-          ? _buildTransformControls()
-          : _buildEnhanceControls(),
+      child: _buildTransformControls(),
     );
   }
 
@@ -472,86 +349,6 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
           label: const Text('Reset ke Asli'),
           style: TextButton.styleFrom(
               foregroundColor: AppTheme.textSecondary),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEnhanceControls() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: _isProcessing ? null : _applyAutoEnhance,
-                icon: const Icon(Icons.auto_fix_high, size: 18),
-                label: const Text('Auto Enhance'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _autoEnhanced
-                      ? AppTheme.primary
-                      : AppTheme.surfaceLight,
-                  foregroundColor: _autoEnhanced
-                      ? Colors.black
-                      : AppTheme.textPrimary,
-                ),
-              ),
-            ),
-            const Gap(8),
-            OutlinedButton.icon(
-              onPressed: _isProcessing ? null : _resetToOriginal,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Reset'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppTheme.textSecondary,
-                side: const BorderSide(color: AppTheme.textSecondary),
-              ),
-            ),
-          ],
-        ),
-        const Gap(12),
-        _buildSlider(
-          label: 'Cerah',
-          icon: Icons.brightness_6_outlined,
-          value: _brightness, min: 0.3, max: 2.0,
-          onChanged: (v) => setState(() => _brightness = v),
-        ),
-        _buildSlider(
-          label: 'Kontras',
-          icon: Icons.contrast,
-          value: _contrast, min: 0.3, max: 2.5,
-          onChanged: (v) => setState(() => _contrast = v),
-        ),
-        _buildSlider(
-          label: 'Saturasi',
-          icon: Icons.color_lens_outlined,
-          value: _saturation, min: 0.0, max: 2.0,
-          onChanged: (v) => setState(() => _saturation = v),
-        ),
-        const Gap(8),
-        Row(
-          children: [
-            Expanded(child: _buildToggle(
-              label: 'Perjelas', icon: Icons.shutter_speed,
-              value: _sharpen,
-              onChanged: (v) => setState(() => _sharpen = v),
-            )),
-            const Gap(8),
-            Expanded(child: _buildToggle(
-              label: 'Hitam Putih', icon: Icons.filter_b_and_w,
-              value: _grayscale,
-              onChanged: (v) => setState(() => _grayscale = v),
-            )),
-          ],
-        ),
-        const Gap(12),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _isProcessing ? null : _applyManual,
-            child: const Text('Terapkan'),
-          ),
         ),
       ],
     );
