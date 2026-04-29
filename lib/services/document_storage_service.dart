@@ -97,7 +97,7 @@ class DocumentStorageService {
     List<String> tempPaths,
   ) async {
     final dir = await _docsDir;
-    final docDir = Directory('\${dir.path}/\$documentId');
+    final docDir = Directory('${dir.path}/$documentId');
     await docDir.create(recursive: true);
 
     final List<String> savedPaths = [];
@@ -108,7 +108,7 @@ class DocumentStorageService {
       if (!await tempFile.exists()) continue;
 
       // Copy langsung tanpa compress/enhance — jaga kualitas asli
-      final newPath = '\${docDir.path}/page_\${i + 1}.jpg';
+      final newPath = '${docDir.path}/page_${i + 1}.jpg';
       await tempFile.copy(newPath);
       savedPaths.add(newPath);
 
