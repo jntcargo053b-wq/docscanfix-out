@@ -14,3 +14,21 @@ dependencies:
 
 flutter:
   uses-material-design: true
+name: docscan
+description: Document Scanner Fix
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cunning_document_scanner: ^1.2.3
+  permission_handler: ^11.3.1
+  saver_gallery: ^3.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
