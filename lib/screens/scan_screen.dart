@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:saver_gallery/saver_gallery.dart';
+import 'package:share_plus/share_plus.dart';
 import '../services/scanner_service.dart';
 import '../services/ocr_service.dart';
 import '../services/pdf_service.dart';
@@ -180,19 +181,33 @@ class _ScanScreenState extends State<ScanScreen> {
       await _storageService.addDocument(doc);
 
       if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
+        setState(() {
+          _isProcessing = false;
+          _processingStatus = '';
+        });
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: const Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 18),
+                Icon(Icons.check_circle, color: Colors.green, size: 24),
                 SizedBox(width: 8),
-                Text('Foto tersimpan ke gallery! ✓'),
+                Text('Berhasil Disimpan'),
               ],
             ),
-            backgroundColor: Colors.green.shade700,
+            content: const Text(
+              'Foto berhasil disimpan ke gallery HP kamu.',
+            ),
+            actions: [
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
           ),
         );
+        if (mounted) Navigator.pop(context, true);
       }
     } catch (e) {
       setState(() {
@@ -257,6 +272,23 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
   // ────────────────────────────────────────────────────────────────────────
+
+  Future<void> _shareImages() async {
+    if (_scannedImages.isEmpty) return;
+    try {
+      final xfiles = _scannedImages
+          .map((path) => XFile(path, mimeType: 'image/jpeg'))
+          .toList();
+      await Share.shareXFiles(
+        xfiles,
+        text: _titleController.text.trim().isNotEmpty
+            ? _titleController.text.trim()
+            : 'Hasil Scan DocScan',
+      );
+    } catch (e) {
+      _showError('Gagal share: $e');
+    }
+  }
 
   Future<void> _exportPdf() async {
     final title = _titleController.text.trim().isEmpty
@@ -394,29 +426,41 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   Widget _buildProcessingView() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(24),
+    return Container(
+      color: AppTheme.background,
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppTheme.primary.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
+              ),
+              child: const Center(
+                child: CircularProgressIndicator(
+                    color: AppTheme.primary, strokeWidth: 3),
+              ),
             ),
-            child: const Center(
-              child: CircularProgressIndicator(
-                  color: AppTheme.primary, strokeWidth: 3),
+            const Gap(24),
+            Text(
+              _processingStatus.isNotEmpty ? _processingStatus : 'Memproses...',
+              style: const TextStyle(
+                color: AppTheme.primary,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
-          const Gap(20),
-          Text(_processingStatus,
-              style: Theme.of(context).textTheme.titleMedium),
-          const Gap(8),
-          Text('Mohon tunggu sebentar...',
-              style: Theme.of(context).textTheme.bodyMedium),
-        ],
+            const Gap(8),
+            const Text(
+              'Mohon tunggu sebentar...',
+              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -638,6 +682,21 @@ class _ScanScreenState extends State<ScanScreen> {
             label: const Text('Simpan ke Gallery'),
             style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16)),
+          ),
+        ),
+        const Gap(12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed:
+                _scannedImages.isEmpty || _isProcessing ? null : _shareImages,
+            icon: const Icon(Icons.share_outlined, size: 20),
+            label: const Text('Share Foto'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              foregroundColor: AppTheme.primary,
+              side: const BorderSide(color: AppTheme.primary),
+            ),
           ),
         ),
         const Gap(12),
