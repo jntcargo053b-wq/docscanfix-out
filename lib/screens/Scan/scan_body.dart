@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
-import '../scan_controller.dart';
+import 'scan_controller.dart';
 import 'widgets/scan_title_input.dart';
 import 'widgets/scan_page_carousel.dart';
 import 'widgets/scan_ocr_section.dart';
 import 'widgets/scan_action_buttons.dart';
 
-/// Scrollable body shown once scanning is complete.
 class ScanBody extends StatelessWidget {
   const ScanBody({
     super.key,
