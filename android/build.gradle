@@ -1,3 +1,10 @@
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
 rootProject.buildDir = "../build"
 
 subprojects {
@@ -5,28 +12,7 @@ subprojects {
 }
 
 subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty("android")) {
-
-            project.android {
-
-                if (namespace == null || namespace == "") {
-                    namespace = "com.example.${project.name.replace('-', '_')}"
-                }
-
-                compileOptions {
-                    sourceCompatibility JavaVersion.VERSION_17
-                    targetCompatibility JavaVersion.VERSION_17
-                }
-
-                if (project.hasProperty("kotlinOptions")) {
-                    kotlinOptions {
-                        jvmTarget = "17"
-                    }
-                }
-            }
-        }
-    }
+    project.evaluationDependsOn(":app")
 }
 
 tasks.register("clean", Delete) {
