@@ -1,39 +1,23 @@
 import 'package:flutter/material.dart';
 
+import '../scan_controller.dart';
+
 class ScanBody extends StatelessWidget {
-  final bool isLoading;
-  final VoidCallback? onScan;
+  final ScanController controller;
+  final Future<void> Function() onSave;
 
   const ScanBody({
     super.key,
-    required this.isLoading,
-    required this.onScan,
+    required this.controller,
+    required this.onSave,
   });
 
   @override
   Widget build(BuildContext context) {
     return Center(
       child: ElevatedButton(
-        onPressed: isLoading ? null : onScan,
-        child: Text(
-          isLoading ? 'Processing...' : 'Scan Document',
-        ),
-      ),
-    );
-  }
-}          ScanOcrSection(
-            isRunning: controller.isOcrRunning,
-            extractedText: controller.extractedText,
-          ),
-          const Gap(24),
-          ScanActionButtons(
-            enabled: controller.hasImages && !controller.isProcessing,
-            onSave: onSave,
-            onExportPdf: controller.exportPdf,
-            onShare: controller.shareImages,
-          ),
-          const Gap(32), // bottom breathing room
-        ],
+        onPressed: onSave,
+        child: const Text('Simpan'),
       ),
     );
   }
