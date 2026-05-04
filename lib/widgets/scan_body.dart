@@ -14,10 +14,12 @@ class ScanBody extends StatelessWidget {
     super.key,
     required this.controller,
     required this.onSave,
+    required this.onAddMore,
   });
 
   final ScanController controller;
   final VoidCallback onSave;
+  final VoidCallback onAddMore;
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +33,7 @@ class ScanBody extends StatelessWidget {
           ScanPageCarousel(
             imagePaths: controller.imagePaths,
             onRemove: controller.removeImage,
-            onAddMore: controller.startScan,
+            onAddMore: onAddMore,
           ),
           const Gap(16),
           ScanOcrSection(
@@ -42,10 +44,10 @@ class ScanBody extends StatelessWidget {
           ScanActionButtons(
             enabled: controller.hasImages && !controller.isProcessing,
             onSave: onSave,
-            onExportPdf: controller.exportPdf,
+            onExportPdf: () => controller.exportPdf(),
             onShare: controller.shareImages,
           ),
-          const Gap(32), // bottom breathing room
+          const Gap(32),
         ],
       ),
     );
