@@ -4,7 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_theme.dart';
 import 'scan_controller.dart';
 import 'widgets/scan_loading_overlay.dart';
-import 'widgets/scan_body.dart';
+import 'scan_body.dart';
 
 /// Entry-point widget for the scan flow.
 /// Owns the [ScanController] lifecycle and delegates all UI to sub-widgets.
