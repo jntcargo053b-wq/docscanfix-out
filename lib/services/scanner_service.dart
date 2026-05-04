@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:cunning_document_scanner/cunning_document_scanner.dart';
+import 'package:document_scanner_flutter/document_scanner_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -10,21 +10,19 @@ class ScannerService {
 
   final ImagePicker _imagePicker = ImagePicker();
 
-  /// Grant camera permission — return true jika granted
+  /// Grant camera permission — return true if granted
   static Future<bool> ensureCameraPermission() async {
     var status = await Permission.camera.status;
 
     if (status.isGranted) return true;
-
     if (status.isPermanentlyDenied) return false;
 
-    // Request permission
     status = await Permission.camera.request();
     return status.isGranted;
   }
 
-  /// Scan document
-  Future<List<String>?> scanDocument() async {
+  /// Scan document — requires BuildContext for document_scanner_flutter
+  Future<List<String>?> scanDocument(context) async {
     final granted = await ensureCameraPermission();
 
     if (!granted) {
@@ -36,12 +34,9 @@ class ScannerService {
     }
 
     try {
-      final List<String>? imagePaths =
-          await CunningDocumentScanner.getPictures(
-        noOfPages: 20,
-        isGalleryImportAllowed: true,
-      );
-      return imagePaths;
+      final File? scannedFile = await DocumentScannerFlutter.launch(context);
+      if (scannedFile == null) return null;
+      return [scannedFile.path];
     } on Exception catch (e) {
       final msg = e.toString().toLowerCase();
       if (msg.contains('permission') || msg.contains('camera')) {
