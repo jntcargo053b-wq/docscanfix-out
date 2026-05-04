@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:document_scanner_flutter/document_scanner_flutter.dart';
+import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -22,7 +23,7 @@ class ScannerService {
   }
 
   /// Scan document — requires BuildContext for document_scanner_flutter
-  Future<List<String>?> scanDocument(context) async {
+  Future<List<String>?> scanDocument(BuildContext context) async {
     final granted = await ensureCameraPermission();
 
     if (!granted) {
