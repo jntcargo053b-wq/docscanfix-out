@@ -54,22 +54,21 @@ class ScanController extends ChangeNotifier {
 
   // ─── Public Actions ───────────────────────────────────────────────────────────
 
-  Future<void> startScan() async {
+  Future<void> startScan(BuildContext context) async {
     _setStatus(ScanStatus.scanning);
     _errorMessage = null;
 
     try {
-      final images = await _scannerService.scanDocument();
+      final images = await _scannerService.scanDocument(context);
 
       if (images == null || images.isEmpty) {
-        // User cancelled — signal caller via null result (do nothing here)
         _setStatus(ScanStatus.idle);
         return;
       }
 
       _imagePaths = images;
       _setStatus(ScanStatus.ready);
-      _runOcr(); // fire-and-forget background task
+      _runOcr();
     } catch (e) {
       _errorMessage = 'Gagal scan: $e';
       _setStatus(ScanStatus.error);
@@ -165,7 +164,6 @@ class ScanController extends ChangeNotifier {
     try {
       _extractedText = await _ocrService.extractTextFromImages(_imagePaths);
     } catch (_) {
-      // OCR failure is non-fatal; continue without text
       _extractedText = null;
     } finally {
       _isOcrRunning = false;

@@ -1,25 +1,10 @@
-// ✅ Correct location: lib/screens/scan/scan_screen.dart
-//    (NOT lib/screens/scan_screen.dart)
-//
-// Final folder structure:
-//   lib/screens/scan/
-//   ├── scan_screen.dart         ← this file
-//   ├── scan_controller.dart
-//   └── widgets/
-//       ├── scan_body.dart
-//       ├── scan_title_input.dart
-//       ├── scan_page_carousel.dart
-//       ├── scan_ocr_section.dart
-//       ├── scan_action_buttons.dart
-//       └── scan_loading_overlay.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../theme/app_theme.dart';
-import 'scan_controller.dart';               // same dir ✓
-import 'widgets/scan_loading_overlay.dart';  // subdir ✓
-import 'widgets/scan_body.dart';             // subdir ✓
+import 'scan_controller.dart';
+import 'widgets/scan_loading_overlay.dart';
+import 'widgets/scan_body.dart';
 
 /// Entry-point widget for the scan flow.
 /// Owns the [ScanController] lifecycle and delegates all UI to sub-widgets.
@@ -37,7 +22,6 @@ class _ScanScreenState extends State<ScanScreen> {
   void initState() {
     super.initState();
     _controller = ScanController();
-    // Trigger camera as soon as the first frame is laid out
     WidgetsBinding.instance.addPostFrameCallback((_) => _initialScan());
   }
 
@@ -50,11 +34,11 @@ class _ScanScreenState extends State<ScanScreen> {
   // ─── Lifecycle Handlers ───────────────────────────────────────────────────────
 
   Future<void> _initialScan() async {
-    await _controller.startScan();
+    if (!mounted) return;
+    await _controller.startScan(context);
 
     if (!mounted) return;
 
-    // If user cancelled or scan errored without images, go back
     if (!_controller.hasImages) {
       Navigator.pop(context);
     }
@@ -139,6 +123,7 @@ class _ScanScreenState extends State<ScanScreen> {
     return ScanBody(
       controller: _controller,
       onSave: _handleSave,
+      onAddMore: () => _controller.startScan(context),
     );
   }
 }
