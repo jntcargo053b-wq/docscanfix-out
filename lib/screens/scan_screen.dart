@@ -180,64 +180,80 @@ class _ScanScreenState extends State<ScanScreen> {
 
       await _storageService.addDocument(doc);
 
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-          _processingStatus = '';
-        });
+      if (!mounted) return;
 
-        // Simpan path untuk dipakai share setelah dialog
-        final savedPaths = saved.imagePaths;
+      setState(() {
+        _isProcessing = false;
+        _processingStatus = '';
+      });
 
-        await showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.green, size: 24),
-                SizedBox(width: 8),
-                Text('Berhasil Disimpan'),
-              ],
-            ),
-            content: const Text(
-              'Foto berhasil disimpan ke gallery HP kamu.',
-            ),
-            actions: [
-              OutlinedButton.icon(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  // Share menggunakan path yang sudah tersimpan
-                  try {
-                    final xfiles = savedPaths
-                        .map((path) => XFile(path, mimeType: 'image/jpeg'))
-                        .toList();
-                    await Share.shareXFiles(
-                      xfiles,
-                      text: title.isNotEmpty ? title : 'Hasil Scan DocScan',
-                    );
-                  } catch (e) {
-                    _showError('Gagal share: $e');
-                  }
-                },
-                icon: const Icon(Icons.share_outlined, size: 16),
-                label: const Text('Share'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.primary,
-                  side: const BorderSide(color: AppTheme.primary),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
+      // ── Flag untuk deteksi apakah user memilih Share ──
+      bool didShare = false;
+
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.green, size: 26),
+              SizedBox(width: 10),
+              Text('Berhasil Disimpan'),
             ],
           ),
-        );
+          content: Text(
+            '${saved.imagePaths.length} foto berhasil disimpan ke gallery HP kamu.',
+          ),
+          actions: [
+            // Tombol Share
+            OutlinedButton.icon(
+              onPressed: () {
+                // Set flag SEBELUM pop agar Navigator.pop di bawah tahu
+                didShare = true;
+                Navigator.pop(dialogContext);
+              },
+              icon: const Icon(Icons.share_outlined, size: 16),
+              label: const Text('Share'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.primary,
+                side: const BorderSide(color: AppTheme.primary),
+              ),
+            ),
+            // Tombol OK
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
 
+      // ── Setelah dialog tertutup, baru jalankan share atau pop screen ──
+      if (!mounted) return;
+
+      if (didShare) {
+        // Jalankan share dulu, baru pop screen setelah selesai
+        try {
+          final xfiles = saved.imagePaths
+              .map((path) => XFile(path, mimeType: 'image/jpeg'))
+              .toList();
+          await Share.shareXFiles(
+            xfiles,
+            text: title.isNotEmpty ? title : 'Hasil Scan DocScan',
+          );
+        } catch (e) {
+          if (mounted) _showError('Gagal share: $e');
+        }
+        // Pop screen setelah share sheet ditutup user
         if (mounted) Navigator.pop(context, true);
+      } else {
+        // User tekan OK, langsung pop
+        Navigator.pop(context, true);
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isProcessing = false;
         _processingStatus = '';
@@ -311,7 +327,7 @@ class _ScanScreenState extends State<ScanScreen> {
             : 'Hasil Scan DocScan',
       );
     } catch (e) {
-      _showError('Gagal share: $e');
+      if (mounted) _showError('Gagal share: $e');
     }
   }
 
@@ -341,36 +357,39 @@ class _ScanScreenState extends State<ScanScreen> {
         _processingStatus = '';
       });
 
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('PDF Berhasil Dibuat'),
-            content: const Text('PDF sudah siap. Mau dibuka atau dibagikan?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Nanti'),
-              ),
-              TextButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await _pdfService.openPdf(pdfPath);
-                },
-                child: const Text('Buka'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await _pdfService.sharePdf(pdfPath, title);
-                },
-                child: const Text('Bagikan'),
-              ),
-            ],
-          ),
-        );
-      }
+      if (!mounted) return;
+
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('PDF Berhasil Dibuat'),
+          content: const Text('PDF sudah siap. Mau dibuka atau dibagikan?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Nanti'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _pdfService.openPdf(pdfPath);
+              },
+              child: const Text('Buka'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                await _pdfService.sharePdf(pdfPath, title);
+              },
+              child: const Text('Bagikan'),
+            ),
+          ],
+        ),
+      );
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isProcessing = false;
         _processingStatus = '';
@@ -745,6 +764,8 @@ class _ScanScreenState extends State<ScanScreen> {
                     showDialog(
                       context: context,
                       builder: (_) => AlertDialog(
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
                         title: const Text('Export PDF'),
                         content: StatefulBuilder(
                           builder: (ctx, setDialogState) => Column(
