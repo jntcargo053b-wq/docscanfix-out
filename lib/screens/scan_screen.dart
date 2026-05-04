@@ -185,6 +185,10 @@ class _ScanScreenState extends State<ScanScreen> {
           _isProcessing = false;
           _processingStatus = '';
         });
+
+        // Simpan path untuk dipakai share setelah dialog
+        final savedPaths = saved.imagePaths;
+
         await showDialog(
           context: context,
           barrierDismissible: false,
@@ -200,6 +204,29 @@ class _ScanScreenState extends State<ScanScreen> {
               'Foto berhasil disimpan ke gallery HP kamu.',
             ),
             actions: [
+              OutlinedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  // Share menggunakan path yang sudah tersimpan
+                  try {
+                    final xfiles = savedPaths
+                        .map((path) => XFile(path, mimeType: 'image/jpeg'))
+                        .toList();
+                    await Share.shareXFiles(
+                      xfiles,
+                      text: title.isNotEmpty ? title : 'Hasil Scan DocScan',
+                    );
+                  } catch (e) {
+                    _showError('Gagal share: $e');
+                  }
+                },
+                icon: const Icon(Icons.share_outlined, size: 16),
+                label: const Text('Share'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.primary,
+                  side: const BorderSide(color: AppTheme.primary),
+                ),
+              ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context),
                 child: const Text('OK'),
@@ -207,6 +234,7 @@ class _ScanScreenState extends State<ScanScreen> {
             ],
           ),
         );
+
         if (mounted) Navigator.pop(context, true);
       }
     } catch (e) {
@@ -218,7 +246,6 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  // ── SAVE TO GALLERY (saveFile, bukan saveImage/bytes) ──────────────────
   Future<void> _saveToGallery(List<String> paths) async {
     await _requestGalleryPermission();
 
@@ -260,7 +287,6 @@ class _ScanScreenState extends State<ScanScreen> {
             'Izin storage ditolak. Buka Pengaturan > Izin > Storage.');
       }
     }
-    // Android 10–12: tidak perlu permission untuk MediaStore
   }
 
   Future<int> _getSdkVersion() async {
@@ -271,7 +297,6 @@ class _ScanScreenState extends State<ScanScreen> {
       return 29;
     }
   }
-  // ────────────────────────────────────────────────────────────────────────
 
   Future<void> _shareImages() async {
     if (_scannedImages.isEmpty) return;
@@ -438,7 +463,8 @@ class _ScanScreenState extends State<ScanScreen> {
               decoration: BoxDecoration(
                 color: AppTheme.primary.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: AppTheme.primary.withValues(alpha: 0.4)),
+                border: Border.all(
+                    color: AppTheme.primary.withValues(alpha: 0.4)),
               ),
               child: const Center(
                 child: CircularProgressIndicator(
@@ -447,7 +473,9 @@ class _ScanScreenState extends State<ScanScreen> {
             ),
             const Gap(24),
             Text(
-              _processingStatus.isNotEmpty ? _processingStatus : 'Memproses...',
+              _processingStatus.isNotEmpty
+                  ? _processingStatus
+                  : 'Memproses...',
               style: const TextStyle(
                 color: AppTheme.primary,
                 fontSize: 16,
@@ -457,7 +485,8 @@ class _ScanScreenState extends State<ScanScreen> {
             const Gap(8),
             const Text(
               'Mohon tunggu sebentar...',
-              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+              style:
+                  TextStyle(color: AppTheme.textSecondary, fontSize: 13),
             ),
           ],
         ),
@@ -502,9 +531,11 @@ class _ScanScreenState extends State<ScanScreen> {
         ),
         decoration: const InputDecoration(
           labelText: 'Nama File',
-          labelStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+          labelStyle:
+              TextStyle(color: AppTheme.textSecondary, fontSize: 12),
           border: InputBorder.none,
-          prefixIcon: Icon(Icons.title, color: AppTheme.primary, size: 18),
+          prefixIcon:
+              Icon(Icons.title, color: AppTheme.primary, size: 18),
         ),
       ),
     );
@@ -600,8 +631,11 @@ class _ScanScreenState extends State<ScanScreen> {
           Row(
             children: [
               Icon(
-                hasText ? Icons.text_snippet_outlined : Icons.text_fields,
-                color: hasText ? AppTheme.primary : AppTheme.textSecondary,
+                hasText
+                    ? Icons.text_snippet_outlined
+                    : Icons.text_fields,
+                color:
+                    hasText ? AppTheme.primary : AppTheme.textSecondary,
                 size: 18,
               ),
               const Gap(8),
@@ -610,8 +644,8 @@ class _ScanScreenState extends State<ScanScreen> {
               const Spacer(),
               if (hasText)
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: AppTheme.primary.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(6),
@@ -676,8 +710,9 @@ class _ScanScreenState extends State<ScanScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton.icon(
-            onPressed:
-                _scannedImages.isEmpty || _isProcessing ? null : _saveDocument,
+            onPressed: _scannedImages.isEmpty || _isProcessing
+                ? null
+                : _saveDocument,
             icon: const Icon(Icons.photo_library_outlined, size: 20),
             label: const Text('Simpan ke Gallery'),
             style: ElevatedButton.styleFrom(
@@ -688,8 +723,9 @@ class _ScanScreenState extends State<ScanScreen> {
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
-            onPressed:
-                _scannedImages.isEmpty || _isProcessing ? null : _shareImages,
+            onPressed: _scannedImages.isEmpty || _isProcessing
+                ? null
+                : _shareImages,
             icon: const Icon(Icons.share_outlined, size: 20),
             label: const Text('Share Foto'),
             style: OutlinedButton.styleFrom(
@@ -714,7 +750,8 @@ class _ScanScreenState extends State<ScanScreen> {
                           builder: (ctx, setDialogState) => Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Text('Buat file PDF dari foto scan ini?'),
+                              const Text(
+                                  'Buat file PDF dari foto scan ini?'),
                               const Gap(12),
                               if (_extractedText != null &&
                                   _extractedText!.isNotEmpty)
@@ -724,9 +761,11 @@ class _ScanScreenState extends State<ScanScreen> {
                                       value: _includeTextInPdf,
                                       onChanged: (v) {
                                         setDialogState(() =>
-                                            _includeTextInPdf = v ?? false);
+                                            _includeTextInPdf =
+                                                v ?? false);
                                         setState(() =>
-                                            _includeTextInPdf = v ?? false);
+                                            _includeTextInPdf =
+                                                v ?? false);
                                       },
                                       activeColor: AppTheme.primary,
                                     ),
