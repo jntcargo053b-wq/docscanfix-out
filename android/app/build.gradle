@@ -6,22 +6,16 @@ plugins {
 
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
-
 if (localPropertiesFile.exists()) {
-    localPropertiesFile.withReader('UTF-8') { reader ->
-        localProperties.load(reader)
-    }
+    localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 
-def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '1'
-def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0'
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode', '1')
+def flutterVersionName = localProperties.getProperty('flutter.versionName', '1.0')
 
 android {
     namespace "com.example.docscan"
-
-    // PERBAIKAN: turunkan compileSdk dari 36 ke 34
     compileSdk 34
-    ndkVersion flutter.ndkVersion
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -34,46 +28,26 @@ android {
 
     defaultConfig {
         applicationId "com.example.docscan"
-
-        // PERBAIKAN: turunkan minSdk? Tidak wajib, 24 aman. Tapi lebih baik 21 untuk ML Kit
         minSdk 21
-        targetSdk 34   // sesuaikan dengan compileSdk
-
+        targetSdk 34
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }
 
-    signingConfigs {
-        release {
-            def keystoreFile = rootProject.file('keystore.jks')
-            def storePass    = System.getenv('KEY_STORE_PASSWORD')
-            def keyAls       = System.getenv('KEY_ALIAS')
-            def keyPass      = System.getenv('KEY_PASSWORD')
-
-            if (keystoreFile.exists() && storePass && keyAls && keyPass) {
-                storeFile     keystoreFile
-                storePassword storePass
-                keyAlias      keyAls
-                keyPassword   keyPass
-            }
-        }
-    }
-
     buildTypes {
         release {
-            def isCI = System.getenv('CI') == 'true'
-            signingConfig isCI ? signingConfigs.release : signingConfigs.debug
-
-            minifyEnabled true
-            shrinkResources true
-
-            proguardFiles getDefaultProguardFile(
-                    'proguard-android-optimize.txt'
-            ), 'proguard-rules.pro'
+            // Signing akan dikonfigurasi jika ada environment variables
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
         }
     }
 }
 
 flutter {
     source '../..'
+}
+
+dependencies {
+    // Tidak perlu tambahan, Flutter plugin akan menambahkan embedding secara otomatis
 }
