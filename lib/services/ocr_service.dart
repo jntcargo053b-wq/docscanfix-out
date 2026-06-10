@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
@@ -6,7 +7,11 @@ class OcrService {
   factory OcrService() => _instance;
   OcrService._internal();
 
-  // FIX: lazy init recognizer agar bisa di-recreate setelah close()
+  // Timeout per halaman — cegah hang pada gambar beresolusi sangat tinggi
+  static const Duration _perPageTimeout = Duration(seconds: 15);
+  // Timeout keseluruhan dokumen multi-halaman
+  static const Duration _totalTimeout = Duration(seconds: 60);
+
   TextRecognizer? _recognizer;
 
   TextRecognizer get _textRecognizer {
@@ -14,39 +19,67 @@ class OcrService {
     return _recognizer!;
   }
 
-  /// Extract text from a single image
+  /// Extract text from a single image, dengan timeout [_perPageTimeout].
   Future<String> extractTextFromImage(String imagePath) async {
     try {
       final inputImage = InputImage.fromFile(File(imagePath));
-      final RecognizedText recognizedText =
-          await _textRecognizer.processImage(inputImage);
+      final RecognizedText recognizedText = await _textRecognizer
+          .processImage(inputImage)
+          .timeout(
+            _perPageTimeout,
+            onTimeout: () => throw TimeoutException(
+              'OCR timeout setelah ${_perPageTimeout.inSeconds}s pada: $imagePath',
+            ),
+          );
       return recognizedText.text;
+    } on TimeoutException {
+      // Kembalikan string kosong — jangan blok halaman lain karena satu halaman lambat
+      return '';
     } catch (e) {
-      throw Exception('OCR failed: $e');
+      throw Exception('OCR gagal: $e');
     }
   }
 
-  /// Extract text from multiple images (multi-page document)
+  /// Extract text dari banyak halaman, dengan total timeout [_totalTimeout].
+  ///
+  /// Menggunakan flag [cancelled] sebagai cancellation token. Setelah timeout,
+  /// flag di-set true sehingga iterasi berikutnya di loop langsung skip — loop
+  /// tidak terus berjalan di background setelah fungsi ini return.
   Future<String> extractTextFromImages(List<String> imagePaths) async {
-    final StringBuffer buffer = StringBuffer();
+    final buffer = StringBuffer();
+    bool cancelled = false;
 
-    for (int i = 0; i < imagePaths.length; i++) {
-      final text = await extractTextFromImage(imagePaths[i]);
-      if (text.isNotEmpty) {
-        if (i > 0) buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
-        buffer.write(text);
+    final timer = Timer(_totalTimeout, () { cancelled = true; });
+
+    try {
+      for (int i = 0; i < imagePaths.length; i++) {
+        if (cancelled) break;                    // berhenti sebelum halaman baru dimulai
+
+        final text = await extractTextFromImage(imagePaths[i]);
+
+        if (cancelled) break;                    // berhenti setelah await selesai
+
+        if (text.isNotEmpty) {
+          if (buffer.isNotEmpty) buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
+          buffer.write(text);
+        }
       }
+    } catch (_) {
+      // partial result tetap dikembalikan
+    } finally {
+      timer.cancel();
     }
 
     return buffer.toString();
   }
 
-  /// Extract structured text with block and line positions
+  /// Extract structured text with block and line positions.
   Future<OcrResult> extractStructuredText(String imagePath) async {
     try {
       final inputImage = InputImage.fromFile(File(imagePath));
-      final RecognizedText recognizedText =
-          await _textRecognizer.processImage(inputImage);
+      final RecognizedText recognizedText = await _textRecognizer
+          .processImage(inputImage)
+          .timeout(_perPageTimeout);
 
       final blocks = recognizedText.blocks.map((block) {
         return OcrBlock(
@@ -61,17 +94,14 @@ class OcrService {
         );
       }).toList();
 
-      return OcrResult(
-        fullText: recognizedText.text,
-        blocks: blocks,
-      );
+      return OcrResult(fullText: recognizedText.text, blocks: blocks);
+    } on TimeoutException {
+      return OcrResult(fullText: '', blocks: []);
     } catch (e) {
-      throw Exception('OCR failed: $e');
+      throw Exception('OCR gagal: $e');
     }
   }
 
-  /// FIX: dispose recognizer dengan benar — tutup instance aktif dan reset
-  /// supaya bisa di-recreate saat dibutuhkan lagi (lazy init).
   void dispose() {
     _recognizer?.close();
     _recognizer = null;
@@ -85,7 +115,8 @@ class OcrResult {
   OcrResult({required this.fullText, required this.blocks});
 
   bool get isEmpty => fullText.trim().isEmpty;
-  int get wordCount => fullText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+  int get wordCount =>
+      fullText.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
   int get lineCount => fullText.split('\n').where((l) => l.isNotEmpty).length;
 }
 

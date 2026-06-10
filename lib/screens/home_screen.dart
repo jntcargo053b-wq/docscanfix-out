@@ -7,7 +7,7 @@ import '../services/scanner_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/document_card.dart';
 import '../widgets/empty_state.dart';
-import 'scan_screen.dart';
+import 'Scan/scan_screen.dart';
 import 'document_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -21,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _storageService = DocumentStorageService();
   List<ScannedDocument> _documents = [];
   bool _isLoading = true;
+  bool _isScanning = false;   // anti-double-tap: true saat _openScanner sedang berjalan
   String _searchQuery = '';
   final _searchController = TextEditingController();
 
@@ -28,23 +29,62 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadDocuments();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkPermissions());
+    // Permission TIDAK diminta di sini — hanya diminta saat tombol Scan ditekan.
+    // Meminta permission di initState membuat dialog muncul sebelum pengguna
+    // berinteraksi, yang melanggar UX guidelines Android dan menurunkan tingkat
+    // penerimaan izin.
   }
 
-  Future<void> _checkPermissions() async {
-    final camera = await Permission.camera.status;
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
-    if (camera.isPermanentlyDenied) {
+  Future<void> _loadDocuments() async {
+    setState(() => _isLoading = true);
+    final docs = await _storageService.loadDocuments();
+    if (!mounted) return;
+    setState(() {
+      _documents = docs;
+      _isLoading = false;
+    });
+  }
+
+  List<ScannedDocument> get _filteredDocs {
+    if (_searchQuery.isEmpty) return _documents;
+    return _documents.where((d) =>
+      d.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+      (d.extractedText?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false)
+    ).toList();
+  }
+
+  // ─── Permission + Navigation ───────────────────────────────────────────────
+
+  /// Dipanggil tepat saat tombol Scan ditekan — konteks yang paling tepat
+  /// untuk meminta permission kamera menurut Android UX guidelines.
+  Future<void> _openScanner() async {
+    if (_isScanning) return;                 // abaikan tap kedua
+    setState(() => _isScanning = true);
+
+    try {
+      final granted = await ScannerService.ensureCameraPermission();
       if (!mounted) return;
-      _showPermissionDialog(permanent: true);
-    } else if (camera.isDenied) {
-      final result = await Permission.camera.request();
-      if (!mounted) return;
-      if (result.isPermanentlyDenied) {
-        _showPermissionDialog(permanent: true);
-      } else if (result.isDenied) {
-        _showPermissionDialog(permanent: false);
+
+      if (granted) {
+        final result = await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ScanScreen()),
+        );
+        if (result == true && mounted) _loadDocuments();
+        return;
       }
+
+      final status = await Permission.camera.status;
+      if (!mounted) return;
+      _showPermissionDialog(permanent: status.isPermanentlyDenied);
+    } finally {
+      if (mounted) setState(() => _isScanning = false);
     }
   }
 
@@ -73,7 +113,8 @@ class _HomeScreenState extends State<HomeScreen> {
               if (permanent) {
                 await openAppSettings();
               } else {
-                await _checkPermissions();
+                // Coba lagi langsung — pengguna baru saja membaca penjelasannya
+                await _openScanner();
               }
             },
             child: Text(permanent ? 'Buka Pengaturan' : 'Izinkan'),
@@ -83,46 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadDocuments() async {
-    setState(() => _isLoading = true);
-    final docs = await _storageService.loadDocuments();
-    setState(() {
-      _documents = docs;
-      _isLoading = false;
-    });
-  }
-
-  List<ScannedDocument> get _filteredDocs {
-    if (_searchQuery.isEmpty) return _documents;
-    return _documents.where((d) =>
-      d.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-      (d.extractedText?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false)
-    ).toList();
-  }
-
-  Future<void> _openScanner() async {
-    // Request permission tepat saat tombol ditekan
-    final granted = await ScannerService.ensureCameraPermission();
-
-    if (!mounted) return;
-
-    if (granted) {
-      final result = await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const ScanScreen()),
-      );
-      if (result == true) _loadDocuments();
-    } else {
-      final status = await Permission.camera.status;
-      _showPermissionDialog(permanent: status.isPermanentlyDenied);
-    }
-  }
+  // ─── Document Actions ──────────────────────────────────────────────────────
 
   Future<void> _deleteDocument(ScannedDocument doc) async {
     final confirm = await showDialog<bool>(
@@ -146,11 +148,13 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
-    if (confirm == true) {
+    if (confirm == true && mounted) {
       await _storageService.deleteDocument(doc.id);
       _loadDocuments();
     }
   }
+
+  // ─── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -195,7 +199,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: AppTheme.surfaceLight,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(Icons.settings_outlined,
+            child: const Icon(Icons.settings_outlined,
                 color: AppTheme.textSecondary, size: 20),
           ).animate().fadeIn(delay: 200.ms),
         ],
@@ -239,6 +243,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return EmptyState(
         isSearching: _searchQuery.isNotEmpty,
         onScanPressed: _openScanner,
+        scanEnabled: !_isScanning,
       );
     }
 
@@ -255,12 +260,10 @@ class _HomeScreenState extends State<HomeScreen> {
             await Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => DocumentDetailScreen(
-                  document: _filteredDocs[i],
-                ),
+                builder: (_) => DocumentDetailScreen(document: _filteredDocs[i]),
               ),
             );
-            _loadDocuments();
+            if (mounted) _loadDocuments();
           },
           onDelete: () => _deleteDocument(_filteredDocs[i]),
         ).animate().fadeIn(
@@ -273,14 +276,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildFAB() {
     return FloatingActionButton.extended(
-      onPressed: _openScanner,
-      backgroundColor: AppTheme.primary,
+      onPressed: _isScanning ? null : _openScanner,
+      backgroundColor: _isScanning ? AppTheme.surfaceLight : AppTheme.primary,
       foregroundColor: Colors.black,
       elevation: 4,
-      icon: const Icon(Icons.document_scanner_outlined, size: 22),
-      label: const Text(
-        'Scan Dokumen',
-        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+      icon: _isScanning
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: AppTheme.textSecondary,
+              ),
+            )
+          : const Icon(Icons.document_scanner_outlined, size: 22),
+      label: Text(
+        _isScanning ? 'Membuka...' : 'Scan Dokumen',
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 14,
+          color: _isScanning ? AppTheme.textSecondary : Colors.black,
+        ),
       ),
     ).animate().scale(delay: 300.ms, curve: Curves.elasticOut);
   }

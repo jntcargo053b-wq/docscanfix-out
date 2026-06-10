@@ -27,6 +27,16 @@ Future<String> _thumbnailIsolate(String imagePath) async {
   return svc._processThumbnail(imagePath);
 }
 
+Future<String> _prepareForOcrIsolate(String imagePath) async {
+  final svc = ImageEnhanceService();
+  return svc._processPrepareForOcr(imagePath);
+}
+
+Future<String> _prepareForPdfIsolate(String imagePath) async {
+  final svc = ImageEnhanceService();
+  return svc._processPrepareForPdf(imagePath);
+}
+
 // ── Parameter classes ───────────────────────────────────────────────────────
 
 class _ManualParams {
@@ -79,6 +89,20 @@ class ImageEnhanceService {
   /// Buat thumbnail 200px untuk home screen cache
   Future<String> generateThumbnail(String imagePath) =>
       compute(_thumbnailIsolate, imagePath);
+
+  /// Resize + grayscale sebelum OCR.
+  ///
+  /// ML Kit bekerja optimal pada gambar ≤1600px dan grayscale menghemat
+  /// ~⅓ memori tanpa menurunkan akurasi teks. Dijalankan di isolate.
+  Future<String> prepareForOcr(String imagePath) =>
+      compute(_prepareForOcrIsolate, imagePath);
+
+  /// Resize + kompres sebelum masuk PDF pipeline.
+  ///
+  /// Gambar kamera mentah sering 12–48 MP; 1920px sudah cukup tajam untuk
+  /// dokumen A4 dicetak 200 dpi. Quality 85 memberi keseimbangan ukuran/kualitas.
+  Future<String> prepareForPdf(String imagePath) =>
+      compute(_prepareForPdfIsolate, imagePath);
 
   // ── Rotate & Flip (ringan, tidak perlu isolate) ──
 
@@ -297,6 +321,59 @@ class ImageEnhanceService {
       dst.setPixel(src.width - 1, y, src.getPixel(src.width - 1, y));
     }
     return dst;
+  }
+
+  /// Resize ke max 1600px lebar + konversi grayscale untuk OCR.
+  /// Grayscale hemat ~⅓ memori dan tidak menurunkan akurasi ML Kit.
+  Future<String> _processPrepareForOcr(String imagePath) async {
+    final bytes = await File(imagePath).readAsBytes();
+    img.Image? image = img.decodeImage(bytes);
+    if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+
+    // Resize bila lebih lebar/tinggi dari 1600px
+    if (image.width > 1600 || image.height > 1600) {
+      image = img.copyResize(
+        image,
+        width: image.width > image.height ? 1600 : -1,
+        height: image.height >= image.width ? 1600 : -1,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+
+    // Grayscale — ML Kit teks tidak butuh warna
+    image = img.grayscale(image);
+
+    return _saveTempNamed(image, 'ocr_prep', quality: 88);
+  }
+
+  /// Resize ke max 1920px + kompres ke quality 85 sebelum masuk PDF pipeline.
+  Future<String> _processPrepareForPdf(String imagePath) async {
+    final bytes = await File(imagePath).readAsBytes();
+    img.Image? image = img.decodeImage(bytes);
+    if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+
+    if (image.width > 1920 || image.height > 1920) {
+      image = img.copyResize(
+        image,
+        width: image.width > image.height ? 1920 : -1,
+        height: image.height >= image.width ? 1920 : -1,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+
+    return _saveTempNamed(image, 'pdf_prep', quality: 85);
+  }
+
+  /// Simpan ke temp dengan prefix nama tertentu.
+  Future<String> _saveTempNamed(img.Image image, String prefix,
+      {int quality = 92}) async {
+    final dir = await getTemporaryDirectory();
+    final name = '${prefix}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final outPath = '${dir.path}/$name';
+    await File(outPath).writeAsBytes(
+      Uint8List.fromList(img.encodeJpg(image, quality: quality)),
+    );
+    return outPath;
   }
 
   Future<String> _saveTemp(img.Image image) async {

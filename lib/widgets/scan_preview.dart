@@ -91,11 +91,13 @@ class ScanPreview extends StatelessWidget {
 class EmptyState extends StatelessWidget {
   final bool isSearching;
   final VoidCallback onScanPressed;
+  final bool scanEnabled;
 
   const EmptyState({
     super.key,
     required this.isSearching,
     required this.onScanPressed,
+    this.scanEnabled = true,
   });
 
   @override
@@ -138,7 +140,7 @@ class EmptyState extends StatelessWidget {
             if (!isSearching) ...[
               const Gap(28),
               ElevatedButton.icon(
-                onPressed: onScanPressed,
+                onPressed: scanEnabled ? onScanPressed : null,
                 icon: const Icon(Icons.document_scanner_outlined, size: 18),
                 label: const Text('Mulai Scan'),
               ),

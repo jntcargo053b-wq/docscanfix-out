@@ -13,6 +13,9 @@
     <!-- STORAGE Android 13+ (granular media) -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
+    <!-- STORAGE Android 14+ (partial media access) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+
     <!-- NETWORK (ML Kit download model pertama kali) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

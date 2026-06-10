@@ -33,6 +33,7 @@ dependencies:
 
   # Permission
   permission_handler: ^11.4.0
+  device_info_plus: ^10.1.0
 
   # Image processing
   image: ^4.5.4

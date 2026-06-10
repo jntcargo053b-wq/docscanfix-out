@@ -1,8 +1,12 @@
 import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 
 class SaveService {
+  // Cache SDK version — DeviceInfoPlugin baca dari sistem sekali saja
+  static int? _cachedSdk;
+
   Future<void> saveImages(List<String> paths) async {
     if (paths.isEmpty) {
       throw Exception("Tidak ada gambar untuk disimpan");
@@ -16,8 +20,7 @@ class SaveService {
         throw Exception("File tidak ditemukan: ${paths[i]}");
       }
 
-      final fileName =
-          "scan_${DateTime.now().millisecondsSinceEpoch}_$i.jpg";
+      final fileName = "scan_${DateTime.now().millisecondsSinceEpoch}_$i.jpg";
 
       final result = await SaverGallery.saveFile(
         filePath: file.path,
@@ -27,8 +30,7 @@ class SaveService {
       );
 
       if (!result.isSuccess) {
-        throw Exception(
-            "Gagal simpan foto ${i + 1}: ${result.errorMessage}");
+        throw Exception("Gagal simpan foto ${i + 1}: ${result.errorMessage}");
       }
     }
   }
@@ -36,33 +38,35 @@ class SaveService {
   Future<void> _requestPermission() async {
     if (!Platform.isAndroid) return;
 
-    // Android 13+ (API 33) pakai Permission.photos
-    // Android 10-12 tidak perlu permission untuk MediaStore
-    // Android < 10 pakai Permission.storage
     final sdk = await _getSdkVersion();
 
     if (sdk >= 33) {
       final status = await Permission.photos.request();
       if (!status.isGranted) {
         throw Exception(
-            "Izin galeri ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin > Media.");
+          "Izin galeri ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin > Media.",
+        );
       }
     } else if (sdk < 29) {
       final status = await Permission.storage.request();
       if (!status.isGranted) {
         throw Exception(
-            "Izin storage ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin > Storage.");
+          "Izin storage ditolak. Buka Pengaturan > Aplikasi > DocScan > Izin > Storage.",
+        );
       }
     }
-    // Android 10-12: tidak perlu permission, MediaStore langsung bisa
+    // Android 10–12: MediaStore tidak butuh permission untuk write
   }
 
+  /// Gunakan DeviceInfoPlugin — tidak butuh shell process.
   Future<int> _getSdkVersion() async {
+    if (_cachedSdk != null) return _cachedSdk!;
     try {
-      final result = await Process.run('getprop', ['ro.build.version.sdk']);
-      return int.tryParse(result.stdout.toString().trim()) ?? 29;
+      final info = await DeviceInfoPlugin().androidInfo;
+      _cachedSdk = info.version.sdkInt;
+      return _cachedSdk!;
     } catch (_) {
-      return 29;
+      return 29; // safe fallback: Android 10
     }
   }
 }

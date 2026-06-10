@@ -11,43 +11,44 @@ class ScannerService {
 
   final ImagePicker _imagePicker = ImagePicker();
 
-  /// Grant camera permission — return true if granted
+  /// Pastikan izin kamera — return true jika diberikan.
   static Future<bool> ensureCameraPermission() async {
     var status = await Permission.camera.status;
-
     if (status.isGranted) return true;
     if (status.isPermanentlyDenied) return false;
-
     status = await Permission.camera.request();
     return status.isGranted;
   }
 
-  /// Scan document — requires BuildContext for document_scanner_flutter
+  /// Scan dokumen — memerlukan BuildContext untuk document_scanner_flutter.
+  /// Melempar [ScannerException] dengan kode yang bisa diinterpretasi UI.
   Future<List<String>?> scanDocument(BuildContext context) async {
     final granted = await ensureCameraPermission();
-
     if (!granted) {
       final status = await Permission.camera.status;
-      if (status.isPermanentlyDenied) {
-        throw Exception('PERMISSION_PERMANENTLY_DENIED');
-      }
-      throw Exception('PERMISSION_DENIED');
+      throw ScannerException(
+        status.isPermanentlyDenied
+            ? ScannerError.permissionPermanentlyDenied
+            : ScannerError.permissionDenied,
+      );
     }
 
     try {
       final File? scannedFile = await DocumentScannerFlutter.launch(context);
       if (scannedFile == null) return null;
       return [scannedFile.path];
-    } on Exception catch (e) {
+    } on ScannerException {
+      rethrow;
+    } catch (e) {
       final msg = e.toString().toLowerCase();
       if (msg.contains('permission') || msg.contains('camera')) {
-        throw Exception('PERMISSION_DENIED');
+        throw ScannerException(ScannerError.permissionDenied);
       }
-      rethrow;
+      throw ScannerException(ScannerError.scanFailed, cause: e);
     }
   }
 
-  /// Import from gallery
+  /// Import dari galeri.
   Future<List<String>?> importFromGallery() async {
     try {
       final List<XFile> images = await _imagePicker.pickMultiImage(
@@ -58,12 +59,23 @@ class ScannerService {
       if (images.isEmpty) return null;
       return images.map((img) => img.path).toList();
     } catch (e) {
-      throw Exception('Gallery import failed: $e');
+      throw ScannerException(ScannerError.galleryFailed, cause: e);
     }
   }
 
-  /// Take single photo
+  /// Ambil foto tunggal dari kamera.
+  /// Permission dicek sebelum membuka kamera.
   Future<String?> takePhoto() async {
+    final granted = await ensureCameraPermission();
+    if (!granted) {
+      final status = await Permission.camera.status;
+      throw ScannerException(
+        status.isPermanentlyDenied
+            ? ScannerError.permissionPermanentlyDenied
+            : ScannerError.permissionDenied,
+      );
+    }
+
     try {
       final XFile? photo = await _imagePicker.pickImage(
         source: ImageSource.camera,
@@ -73,11 +85,11 @@ class ScannerService {
       );
       return photo?.path;
     } catch (e) {
-      throw Exception('Camera capture failed: $e');
+      throw ScannerException(ScannerError.cameraFailed, cause: e);
     }
   }
 
-  /// Delete temp files
+  /// Hapus file sementara.
   Future<void> cleanupFiles(List<String> paths) async {
     for (final path in paths) {
       try {
@@ -86,4 +98,41 @@ class ScannerService {
       } catch (_) {}
     }
   }
+}
+
+// ─── Error types ─────────────────────────────────────────────────────────────
+
+enum ScannerError {
+  permissionDenied,
+  permissionPermanentlyDenied,
+  scanFailed,
+  cameraFailed,
+  galleryFailed,
+}
+
+class ScannerException implements Exception {
+  final ScannerError error;
+  final Object? cause;
+  const ScannerException(this.error, {this.cause});
+
+  /// Pesan ramah pengguna — tidak ada stack trace atau nama class.
+  String toUserMessage() => switch (error) {
+    ScannerError.permissionDenied =>
+      'Izin kamera diperlukan untuk scan dokumen. '
+      'Ketuk Izinkan saat dialog muncul.',
+    ScannerError.permissionPermanentlyDenied =>
+      'Izin kamera diblokir. Buka Pengaturan → Aplikasi → DocScan → '
+      'Izin → aktifkan Kamera, lalu coba lagi.',
+    ScannerError.scanFailed =>
+      'Scan gagal. Pastikan kamera tidak digunakan aplikasi lain, '
+      'lalu coba lagi.',
+    ScannerError.cameraFailed =>
+      'Kamera tidak dapat dibuka. Coba tutup aplikasi lain yang '
+      'menggunakan kamera.',
+    ScannerError.galleryFailed =>
+      'Gagal membuka galeri. Pastikan izin penyimpanan sudah diberikan.',
+  };
+
+  @override
+  String toString() => 'ScannerException(${error.name}: $cause)';
 }

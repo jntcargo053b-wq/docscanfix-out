@@ -102,6 +102,11 @@ class DocumentStorageService {
     String documentId,
     List<String> tempPaths,
   ) async {
+    // FIX: tolak lebih awal jika tidak ada gambar
+    if (tempPaths.isEmpty) {
+      throw Exception('Tidak ada gambar untuk disimpan.');
+    }
+
     final dir = await _docsDir;
     final docDir = Directory('${dir.path}/$documentId');
     await docDir.create(recursive: true);
@@ -110,16 +115,30 @@ class DocumentStorageService {
     String? thumbnailPath;
 
     for (int i = 0; i < tempPaths.length; i++) {
-      final tempFile = File(tempPaths[i]);
+      // FIX: skip path kosong/null-string sebelum membuat File object
+      final rawPath = tempPaths[i].trim();
+      if (rawPath.isEmpty) continue;
+
+      final tempFile = File(rawPath);
       if (!await tempFile.exists()) continue;
 
-      // Copy langsung tanpa compress/enhance — jaga kualitas asli
       final newPath = '${docDir.path}/page_${i + 1}.jpg';
-      await tempFile.copy(newPath);
+      try {
+        await tempFile.copy(newPath);
+      } catch (e) {
+        // Lewati halaman ini jika copy gagal (misal: storage penuh / permission I/O)
+        // Jangan lempar — biarkan halaman lain tetap diproses
+        continue;
+      }
       savedPaths.add(newPath);
 
-      // Thumbnail = path foto pertama (tidak generate terpisah)
       if (i == 0) thumbnailPath = newPath;
+    }
+
+    // FIX: jika tidak ada satu pun file berhasil di-copy, lempar error
+    // agar caller tidak menyimpan dokumen kosong ke storage
+    if (savedPaths.isEmpty) {
+      throw Exception('Semua file gambar tidak ditemukan atau tidak dapat dibaca.');
     }
 
     return (imagePaths: savedPaths, thumbnailPath: thumbnailPath);

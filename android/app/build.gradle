@@ -34,7 +34,7 @@ android {
     defaultConfig {
         applicationId "com.example.docscan"
 
-        minSdk 21
+        minSdk 24
         targetSdk 36
 
         versionCode flutterVersionCode.toInteger()
@@ -43,16 +43,26 @@ android {
 
     signingConfigs {
         release {
-            storeFile file("keystore.jks")
-            storePassword System.getenv("KEY_STORE_PASSWORD")
-            keyAlias System.getenv("KEY_ALIAS")
-            keyPassword System.getenv("KEY_PASSWORD")
+            def keystoreFile = rootProject.file('keystore.jks')
+            def storePass    = System.getenv('KEY_STORE_PASSWORD')
+            def keyAls       = System.getenv('KEY_ALIAS')
+            def keyPass      = System.getenv('KEY_PASSWORD')
+
+            // Hanya aktifkan signing jika semua env var tersedia
+            // Saat debug lokal tanpa env var, build tetap jalan (pakai debug signing)
+            if (keystoreFile.exists() && storePass && keyAls && keyPass) {
+                storeFile     keystoreFile
+                storePassword storePass
+                keyAlias      keyAls
+                keyPassword   keyPass
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            def isCI = System.getenv('CI') == 'true'
+            signingConfig isCI ? signingConfigs.release : signingConfigs.debug
 
             minifyEnabled true
             shrinkResources true
