@@ -19,7 +19,8 @@ def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '
 android {
     namespace "com.example.docscan"
 
-    compileSdk 36
+    // PERBAIKAN: turunkan compileSdk dari 36 ke 34
+    compileSdk 34
     ndkVersion flutter.ndkVersion
 
     compileOptions {
@@ -34,8 +35,9 @@ android {
     defaultConfig {
         applicationId "com.example.docscan"
 
-        minSdk 24
-        targetSdk 36
+        // PERBAIKAN: turunkan minSdk? Tidak wajib, 24 aman. Tapi lebih baik 21 untuk ML Kit
+        minSdk 21
+        targetSdk 34   // sesuaikan dengan compileSdk
 
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
@@ -48,8 +50,6 @@ android {
             def keyAls       = System.getenv('KEY_ALIAS')
             def keyPass      = System.getenv('KEY_PASSWORD')
 
-            // Hanya aktifkan signing jika semua env var tersedia
-            // Saat debug lokal tanpa env var, build tetap jalan (pakai debug signing)
             if (keystoreFile.exists() && storePass && keyAls && keyPass) {
                 storeFile     keystoreFile
                 storePassword storePass
