@@ -381,83 +381,8 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     );
   }
 
-  Widget _buildSlider({
-    required String label,
-    required IconData icon,
-    required double value,
-    required double min,
-    required double max,
-    required ValueChanged<double> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Icon(icon, color: AppTheme.textSecondary, size: 18),
-          const Gap(6),
-          SizedBox(
-            width: 58,
-            child: Text(label,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 12)),
-          ),
-          Expanded(
-            child: Slider(
-              value: value, min: min, max: max,
-              activeColor: AppTheme.primary,
-              inactiveColor: AppTheme.surfaceLight,
-              onChanged: onChanged,
-            ),
-          ),
-          SizedBox(
-            width: 32,
-            child: Text(value.toStringAsFixed(1),
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontSize: 11),
-                textAlign: TextAlign.center),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildToggle({
-    required String label,
-    required IconData icon,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return GestureDetector(
-      onTap: () => onChanged(!value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: value
-              ? AppTheme.primary.withValues(alpha: 0.15)
-              : AppTheme.surfaceLight,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-              color: value ? AppTheme.primary : Colors.transparent),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon,
-                size: 16,
-                color: value ? AppTheme.primary : AppTheme.textSecondary),
-            const Gap(6),
-            Text(label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: value ? AppTheme.primary : AppTheme.textSecondary,
-                )),
-          ],
-        ),
-      ),
-    );
-  }
 }
+
 
 // Crop overlay painter
 class _CropOverlayPainter extends CustomPainter {

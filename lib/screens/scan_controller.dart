@@ -140,8 +140,10 @@ class ScanController extends ChangeNotifier {
     );
   }
 
-  void shareImages() {
-    Share.shareXFiles(_imagePaths.map((p) => XFile(p)).toList());
+  /// Share gambar — caller harus cek mounted setelah await ini selesai.
+  Future<void> shareImages() async {
+    if (_imagePaths.isEmpty) return;
+    await Share.shareXFiles(_imagePaths.map((p) => XFile(p)).toList());
   }
 
   void clearError() {
@@ -171,14 +173,35 @@ class ScanController extends ChangeNotifier {
     }
   }
 
+  /// FIX: permission check yang benar — cek SDK version, bukan OR antar dua await.
   Future<void> _requestGalleryPermission() async {
     if (!Platform.isAndroid) return;
 
-    final granted = await Permission.photos.request().isGranted ||
-        await Permission.storage.request().isGranted;
+    // Android 13+ (API 33) → Permission.photos
+    // Android 10-12 (API 29-32) → tidak perlu permission untuk MediaStore
+    // Android < 10 (API < 29) → Permission.storage
+    final sdkVersion = await _getSdkVersion();
 
-    if (!granted) {
-      throw Exception('Izin galeri ditolak. Aktifkan di Pengaturan.');
+    if (sdkVersion >= 33) {
+      final status = await Permission.photos.request();
+      if (!status.isGranted) {
+        throw Exception('Izin galeri ditolak. Aktifkan di Pengaturan > Izin > Media.');
+      }
+    } else if (sdkVersion < 29) {
+      final status = await Permission.storage.request();
+      if (!status.isGranted) {
+        throw Exception('Izin storage ditolak. Aktifkan di Pengaturan > Izin > Storage.');
+      }
+    }
+    // Android 10-12: MediaStore tidak perlu permission khusus
+  }
+
+  Future<int> _getSdkVersion() async {
+    try {
+      final result = await Process.run('getprop', ['ro.build.version.sdk']);
+      return int.tryParse(result.stdout.toString().trim()) ?? 29;
+    } catch (_) {
+      return 29; // fallback aman ke Android 10
     }
   }
 

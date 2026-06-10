@@ -6,10 +6,13 @@ class OcrService {
   factory OcrService() => _instance;
   OcrService._internal();
 
-  // Supports Latin, Chinese, Devanagari, Japanese, Korean
-  final TextRecognizer _textRecognizer = TextRecognizer(
-    script: TextRecognitionScript.latin,
-  );
+  // FIX: lazy init recognizer agar bisa di-recreate setelah close()
+  TextRecognizer? _recognizer;
+
+  TextRecognizer get _textRecognizer {
+    _recognizer ??= TextRecognizer(script: TextRecognitionScript.latin);
+    return _recognizer!;
+  }
 
   /// Extract text from a single image
   Future<String> extractTextFromImage(String imagePath) async {
@@ -67,9 +70,11 @@ class OcrService {
     }
   }
 
-  /// Dispose recognizer when done
+  /// FIX: dispose recognizer dengan benar — tutup instance aktif dan reset
+  /// supaya bisa di-recreate saat dibutuhkan lagi (lazy init).
   void dispose() {
-    _textRecognizer.close();
+    _recognizer?.close();
+    _recognizer = null;
   }
 }
 

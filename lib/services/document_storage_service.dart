@@ -66,10 +66,16 @@ class DocumentStorageService {
     }
   }
 
-  /// Delete a document and its files
+  /// FIX: gunakan firstWhereOrNull pattern untuk menghindari StateError
+  /// jika ID tidak ditemukan — sebelumnya firstWhere tanpa orElse akan crash.
   Future<void> deleteDocument(String documentId) async {
     final docs = await loadDocuments();
-    final doc = docs.firstWhere((d) => d.id == documentId);
+
+    // Cari dokumen; jika tidak ada, langsung return (idempotent delete)
+    final docIndex = docs.indexWhere((d) => d.id == documentId);
+    if (docIndex == -1) return;
+
+    final doc = docs[docIndex];
 
     // Delete image files
     for (final path in doc.imagePaths) {
@@ -87,7 +93,7 @@ class DocumentStorageService {
       } catch (_) {}
     }
 
-    docs.removeWhere((d) => d.id == documentId);
+    docs.removeAt(docIndex);
     await saveDocuments(docs);
   }
 

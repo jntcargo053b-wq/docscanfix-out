@@ -47,6 +47,8 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen>
   }
 
   Future<void> _exportPdf() async {
+    // FIX: guard race condition — jangan jalankan jika sedang proses
+    if (_isExportingPdf || _isSharing) return;
     setState(() => _isExportingPdf = true);
     try {
       String pdfPath = _doc.pdfPath ?? '';
@@ -203,6 +205,8 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen>
   }
 
   Future<void> _shareAsPdf() async {
+    // FIX: guard race condition — jangan jalankan jika sedang export/share
+    if (_isSharing || _isExportingPdf) return;
     setState(() => _isSharing = true);
     try {
       String pdfPath = _doc.pdfPath ?? '';

@@ -13,11 +13,15 @@ class ScanBody extends StatelessWidget {
     required this.controller,
     required this.onSave,
     required this.onAddMore,
+    // FIX: tambahkan onShare sebagai parameter agar caller bisa inject handler
+    // yang sudah memiliki mounted-guard yang benar.
+    required this.onShare,
   });
 
   final ScanController controller;
   final VoidCallback onSave;
   final VoidCallback onAddMore;
+  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +47,7 @@ class ScanBody extends StatelessWidget {
             enabled: controller.hasImages && !controller.isProcessing,
             onSave: onSave,
             onExportPdf: () => controller.exportPdf(),
-            onShare: controller.shareImages,
+            onShare: onShare,
           ),
           const Gap(32),
         ],

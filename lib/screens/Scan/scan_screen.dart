@@ -46,6 +46,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Future<void> _handleSave() async {
     final success = await _controller.saveDocument();
+
+    // FIX: cek mounted setelah setiap async gap — terutama setelah Save
     if (!mounted) return;
 
     if (success) {
@@ -65,6 +67,13 @@ class _ScanScreenState extends State<ScanScreen> {
       );
       _controller.clearError();
     }
+  }
+
+  /// FIX: share harus await + cek mounted setelah share sheet dismiss,
+  /// agar tidak ada Navigator.pop dipanggil saat share sheet masih terbuka.
+  Future<void> _handleShare() async {
+    await _controller.shareImages();
+    // Tidak ada Navigator action setelah share — aman.
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────────
@@ -124,6 +133,8 @@ class _ScanScreenState extends State<ScanScreen> {
       controller: _controller,
       onSave: _handleSave,
       onAddMore: () => _controller.startScan(context),
+      // FIX: delegate share ke handler yang awaitable
+      onShare: _handleShare,
     );
   }
 }
