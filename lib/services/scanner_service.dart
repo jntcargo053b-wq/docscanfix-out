@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:document_scanner_flutter/document_scanner_flutter.dart';
+import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -20,8 +20,8 @@ class ScannerService {
     return status.isGranted;
   }
 
-  /// Scan dokumen — memerlukan BuildContext untuk document_scanner_flutter.
-  /// Melempar [ScannerException] dengan kode yang bisa diinterpretasi UI.
+  /// Scan dokumen menggunakan cunning_document_scanner.
+  /// BuildContext tetap diterima untuk kompatibilitas caller, tapi tidak dipakai.
   Future<List<String>?> scanDocument(BuildContext context) async {
     final granted = await ensureCameraPermission();
     if (!granted) {
@@ -34,9 +34,12 @@ class ScannerService {
     }
 
     try {
-      final File? scannedFile = await DocumentScannerFlutter.launch(context);
-      if (scannedFile == null) return null;
-      return [scannedFile.path];
+      final List<String>? paths = await CunningDocumentScanner.getPictures(
+        noOfPages: 10,
+        isGalleryImportAllowed: false,
+      );
+      if (paths == null || paths.isEmpty) return null;
+      return paths;
     } on ScannerException {
       rethrow;
     } catch (e) {
@@ -64,7 +67,6 @@ class ScannerService {
   }
 
   /// Ambil foto tunggal dari kamera.
-  /// Permission dicek sebelum membuka kamera.
   Future<String?> takePhoto() async {
     final granted = await ensureCameraPermission();
     if (!granted) {
@@ -115,7 +117,6 @@ class ScannerException implements Exception {
   final Object? cause;
   const ScannerException(this.error, {this.cause});
 
-  /// Pesan ramah pengguna — tidak ada stack trace atau nama class.
   String toUserMessage() => switch (error) {
     ScannerError.permissionDenied =>
       'Izin kamera diperlukan untuk scan dokumen. '
