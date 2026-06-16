@@ -32,7 +32,7 @@ dependencies:
   saver_gallery: ^3.0.10
 
   # Permission
-  permission_handler: ^11.4.0
+  permission_handler: ^12.0.1
   device_info_plus: ^10.1.0
 
   # Image processing
