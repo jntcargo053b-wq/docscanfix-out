@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'dart:async';
 import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
 import '../services/scanner_service.dart';
@@ -20,51 +21,64 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _storageService = DocumentStorageService();
   List<ScannedDocument> _documents = [];
-  bool _isLoading = true;
-  bool _isScanning = false;   // anti-double-tap: true saat _openScanner sedang berjalan
+  List<ScannedDocument>? _cachedFilteredDocs;
+  bool _isScanning = false;
   String _searchQuery = '';
   final _searchController = TextEditingController();
+
+  // ── Debounce timer for search ──
+  Timer? _searchDebounceTimer;
+  static const Duration _searchDelay = Duration(milliseconds: 300);
 
   @override
   void initState() {
     super.initState();
-    _loadDocuments();
-    // Permission TIDAK diminta di sini — hanya diminta saat tombol Scan ditekan.
-    // Meminta permission di initState membuat dialog muncul sebelum pengguna
-    // berinteraksi, yang melanggar UX guidelines Android dan menurunkan tingkat
-    // penerimaan izin.
+    // Permission NOT requested here — only when scan button is pressed
+    // This follows Android UX guidelines
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchDebounceTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadDocuments() async {
-    setState(() => _isLoading = true);
-    final docs = await _storageService.loadDocuments();
-    if (!mounted) return;
-    setState(() {
-      _documents = docs;
-      _isLoading = false;
+  /// Debounced search to avoid expensive filtering on every keystroke
+  void _onSearchChanged() {
+    _searchDebounceTimer?.cancel();
+    _searchDebounceTimer = Timer(_searchDelay, () {
+      setState(() {
+        _searchQuery = _searchController.text;
+        _cachedFilteredDocs = null; // Invalidate cache
+      });
     });
   }
 
-  List<ScannedDocument> get _filteredDocs {
-    if (_searchQuery.isEmpty) return _documents;
-    return _documents.where((d) =>
-      d.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-      (d.extractedText?.toLowerCase().contains(_searchQuery.toLowerCase()) ?? false)
-    ).toList();
+  /// Get filtered documents with caching
+  List<ScannedDocument> _getFilteredDocs(List<ScannedDocument> docs) {
+    if (_cachedFilteredDocs != null) return _cachedFilteredDocs!;
+
+    if (_searchQuery.isEmpty) {
+      _cachedFilteredDocs = docs;
+      return docs;
+    }
+
+    final query = _searchQuery.toLowerCase();
+    _cachedFilteredDocs = docs.where((d) {
+      // Only search title by default for performance
+      // Extracting full text search for every keystroke is expensive
+      return d.title.toLowerCase().contains(query) ||
+          (d.extractedText?.toLowerCase().contains(query) ?? false);
+    }).toList();
+
+    return _cachedFilteredDocs!;
   }
 
-  // ─── Permission + Navigation ───────────────────────────────────────────────
-
-  /// Dipanggil tepat saat tombol Scan ditekan — konteks yang paling tepat
-  /// untuk meminta permission kamera menurut Android UX guidelines.
+  /// Permission + Navigation
   Future<void> _openScanner() async {
-    if (_isScanning) return;                 // abaikan tap kedua
+    if (_isScanning) return;
     setState(() => _isScanning = true);
 
     try {
@@ -76,7 +90,13 @@ class _HomeScreenState extends State<HomeScreen> {
           context,
           MaterialPageRoute(builder: (_) => const ScanScreen()),
         );
-        if (result == true && mounted) _loadDocuments();
+        if (result == true && mounted) {
+          // Invalidate cache and reload
+          _storageService.invalidateCache();
+          setState(() {
+            _cachedFilteredDocs = null;
+          });
+        }
         return;
       }
 
@@ -113,7 +133,6 @@ class _HomeScreenState extends State<HomeScreen> {
               if (permanent) {
                 await openAppSettings();
               } else {
-                // Coba lagi langsung — pengguna baru saja membaca penjelasannya
                 await _openScanner();
               }
             },
@@ -123,8 +142,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  // ─── Document Actions ──────────────────────────────────────────────────────
 
   Future<void> _deleteDocument(ScannedDocument doc) async {
     final confirm = await showDialog<bool>(
@@ -150,11 +167,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (confirm == true && mounted) {
       await _storageService.deleteDocument(doc.id);
-      _loadDocuments();
+      _storageService.invalidateCache();
+      setState(() {
+        _cachedFilteredDocs = null;
+      });
     }
   }
-
-  // ─── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -186,10 +204,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 'DocScan',
                 style: Theme.of(context).textTheme.displayMedium,
               ).animate().fadeIn(duration: 400.ms).slideX(begin: -0.1),
-              Text(
-                '${_documents.length} dokumen tersimpan',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ).animate().fadeIn(delay: 100.ms),
+              FutureBuilder<List<ScannedDocument>>(
+                future: _storageService.loadDocuments(),
+                builder: (ctx, snapshot) => Text(
+                  '${snapshot.data?.length ?? 0} dokumen tersimpan',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ).animate().fadeIn(delay: 100.ms),
+              ),
             ],
           ),
           Container(
@@ -218,7 +239,6 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: TextField(
           controller: _searchController,
-          onChanged: (v) => setState(() => _searchQuery = v),
           style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
           decoration: const InputDecoration(
             hintText: 'Cari dokumen...',
@@ -233,44 +253,72 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDocumentList() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppTheme.primary),
-      );
-    }
+    return FutureBuilder<List<ScannedDocument>>(
+      future: _storageService.loadDocuments(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppTheme.primary),
+          );
+        }
 
-    if (_filteredDocs.isEmpty) {
-      return EmptyState(
-        isSearching: _searchQuery.isNotEmpty,
-        onScanPressed: _openScanner,
-        scanEnabled: !_isScanning,
-      );
-    }
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('Error loading documents'),
+          );
+        }
 
-    return RefreshIndicator(
-      onRefresh: _loadDocuments,
-      color: AppTheme.primary,
-      backgroundColor: AppTheme.surface,
-      child: ListView.builder(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: _filteredDocs.length,
-        itemBuilder: (ctx, i) => DocumentCard(
-          document: _filteredDocs[i],
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => DocumentDetailScreen(document: _filteredDocs[i]),
-              ),
-            );
-            if (mounted) _loadDocuments();
+        _documents = snapshot.data ?? [];
+        final filteredDocs = _getFilteredDocs(_documents);
+
+        if (filteredDocs.isEmpty) {
+          return EmptyState(
+            isSearching: _searchQuery.isNotEmpty,
+            onScanPressed: _openScanner,
+            scanEnabled: !_isScanning,
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: () async {
+            _storageService.invalidateCache();
+            setState(() {
+              _cachedFilteredDocs = null;
+            });
           },
-          onDelete: () => _deleteDocument(_filteredDocs[i]),
-        ).animate().fadeIn(
-          delay: Duration(milliseconds: i * 60),
-          duration: 300.ms,
-        ).slideY(begin: 0.05),
-      ),
+          color: AppTheme.primary,
+          backgroundColor: AppTheme.surface,
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: filteredDocs.length,
+            itemBuilder: (ctx, i) {
+              final doc = filteredDocs[i];
+              return DocumentCard(
+                key: ValueKey(doc.id),
+                document: doc,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DocumentDetailScreen(document: doc),
+                    ),
+                  );
+                  if (mounted) {
+                    _storageService.invalidateCache();
+                    setState(() {
+                      _cachedFilteredDocs = null;
+                    });
+                  }
+                },
+                onDelete: () => _deleteDocument(doc),
+              ).animate().fadeIn(
+                    delay: Duration(milliseconds: i * 60),
+                    duration: 300.ms,
+                  ).slideY(begin: 0.05);
+            },
+          ),
+        );
+      },
     );
   }
 

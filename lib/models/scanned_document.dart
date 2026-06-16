@@ -1,12 +1,13 @@
+import 'package:intl/intl.dart';
+
 class ScannedDocument {
   final String id;
   final String title;
   final List<String> imagePaths;
   final String? extractedText;
   final DateTime createdAt;
-  final DateTime? updatedAt;
   final String? pdfPath;
-  final String? thumbnailPath; // ← baru: thumbnail cache
+  final String? thumbnailPath;
 
   ScannedDocument({
     required this.id,
@@ -14,58 +15,78 @@ class ScannedDocument {
     required this.imagePaths,
     this.extractedText,
     required this.createdAt,
-    this.updatedAt,
     this.pdfPath,
     this.thumbnailPath,
   });
 
+  /// Empty document for safe defaults
+  ScannedDocument.empty()
+      : id = '',
+        title = '',
+        imagePaths = [],
+        extractedText = null,
+        createdAt = DateTime.now(),
+        pdfPath = null,
+        thumbnailPath = null;
+
+  /// Convert to JSON
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'imagePaths': imagePaths,
+        'extractedText': extractedText,
+        'createdAt': createdAt.toIso8601String(),
+        'pdfPath': pdfPath,
+        'thumbnailPath': thumbnailPath,
+      };
+
+  /// Create from JSON
+  factory ScannedDocument.fromJson(Map<String, dynamic> json) =>
+      ScannedDocument(
+        id: json['id'] as String? ?? '',
+        title: json['title'] as String? ?? 'Untitled',
+        imagePaths: List<String>.from(json['imagePaths'] as List? ?? []),
+        extractedText: json['extractedText'] as String?,
+        createdAt: json['createdAt'] != null
+            ? DateTime.parse(json['createdAt'] as String)
+            : DateTime.now(),
+        pdfPath: json['pdfPath'] as String?,
+        thumbnailPath: json['thumbnailPath'] as String?,
+      );
+
+  /// Format created date for display
+  String get formattedDate {
+    try {
+      return DateFormat('d MMM yyyy, HH:mm').format(createdAt);
+    } catch (_) {
+      return 'Unknown date';
+    }
+  }
+
+  /// Get page count
   int get pageCount => imagePaths.length;
 
+  /// Copy with modifications
   ScannedDocument copyWith({
+    String? id,
     String? title,
     List<String>? imagePaths,
     String? extractedText,
-    DateTime? updatedAt,
+    DateTime? createdAt,
     String? pdfPath,
     String? thumbnailPath,
-  }) {
-    return ScannedDocument(
-      id: id,
-      title: title ?? this.title,
-      imagePaths: imagePaths ?? this.imagePaths,
-      extractedText: extractedText ?? this.extractedText,
-      createdAt: createdAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-      pdfPath: pdfPath ?? this.pdfPath,
-      thumbnailPath: thumbnailPath ?? this.thumbnailPath,
-    );
-  }
+  }) =>
+      ScannedDocument(
+        id: id ?? this.id,
+        title: title ?? this.title,
+        imagePaths: imagePaths ?? this.imagePaths,
+        extractedText: extractedText ?? this.extractedText,
+        createdAt: createdAt ?? this.createdAt,
+        pdfPath: pdfPath ?? this.pdfPath,
+        thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+      );
 
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'title': title,
-      'imagePaths': imagePaths,
-      'extractedText': extractedText,
-      'createdAt': createdAt.toIso8601String(),
-      'updatedAt': updatedAt?.toIso8601String(),
-      'pdfPath': pdfPath,
-      'thumbnailPath': thumbnailPath,
-    };
-  }
-
-  factory ScannedDocument.fromJson(Map<String, dynamic> json) {
-    return ScannedDocument(
-      id: json['id'],
-      title: json['title'],
-      imagePaths: List<String>.from(json['imagePaths']),
-      extractedText: json['extractedText'],
-      createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: json['updatedAt'] != null
-          ? DateTime.parse(json['updatedAt'])
-          : null,
-      pdfPath: json['pdfPath'],
-      thumbnailPath: json['thumbnailPath'],
-    );
-  }
+  @override
+  String toString() =>
+      'ScannedDocument($id, "$title", ${imagePaths.length} pages)';
 }

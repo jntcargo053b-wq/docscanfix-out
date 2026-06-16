@@ -15,7 +15,7 @@ import '../../models/scanned_document.dart';
 enum ScanStatus { idle, scanning, ready, processing, done, error }
 
 class ScanController extends ChangeNotifier {
-  // ─── Dependencies ────────────────────────────────────────────────────────────
+  // ─── Dependencies ────────────────────────────────────────────────────────
   final ScannerService _scannerService;
   final OcrService _ocrService;
   final PdfService _pdfService;
@@ -34,7 +34,7 @@ class ScanController extends ChangeNotifier {
         _storageService = storageService ?? DocumentStorageService(),
         _enhanceService = enhanceService ?? ImageEnhanceService();
 
-  // ─── State ───────────────────────────────────────────────────────────────────
+  // ─── State ──────────────────────────────────────────────────────────
   ScanStatus _status = ScanStatus.idle;
   List<String> _imagePaths = [];
   String? _extractedText;
@@ -42,11 +42,15 @@ class ScanController extends ChangeNotifier {
   String _processingStatus = '';
   String? _errorMessage;
 
+  // ── Cache for prepared images to avoid reprocessing ──
+  final Map<String, String> _preparedForOcrCache = {};
+  final Map<String, String> _preparedForPdfCache = {};
+
   late final TextEditingController titleController = TextEditingController(
     text: _defaultTitle(),
   );
 
-  // ─── Getters ─────────────────────────────────────────────────────────────────
+  // ─── Getters ─────────────────────────────────────────────────────────
   ScanStatus get status => _status;
   List<String> get imagePaths => List.unmodifiable(_imagePaths);
   String? get extractedText => _extractedText;
@@ -57,7 +61,7 @@ class ScanController extends ChangeNotifier {
   String get processingStatus => _processingStatus;
   String? get errorMessage => _errorMessage;
 
-  // ─── Public Actions ───────────────────────────────────────────────────────────
+  // ─── Public Actions ───────────────────────────────────────────────────────
 
   Future<void> startScan(BuildContext context) async {
     _setStatus(ScanStatus.scanning);
@@ -86,6 +90,19 @@ class ScanController extends ChangeNotifier {
   void removeImage(int index) {
     if (index < 0 || index >= _imagePaths.length) return;
     _imagePaths = List.from(_imagePaths)..removeAt(index);
+
+    // Invalidate caches for removed image
+    _preparedForOcrCache.removeWhere((k, v) {
+      try {
+        final originalIndex =
+            _imagePaths.indexOf(File(k).path.split('/').last);
+        return originalIndex == -1 || originalIndex > index;
+      } catch (_) {
+        return true;
+      }
+    });
+    _preparedForPdfCache.clear();
+
     notifyListeners();
   }
 
@@ -97,7 +114,6 @@ class ScanController extends ChangeNotifier {
       return false;
     }
 
-    // FIX: jangan lanjut jika tidak ada gambar sama sekali
     if (_imagePaths.isEmpty) {
       _errorMessage = 'Tidak ada gambar untuk disimpan';
       notifyListeners();
@@ -140,9 +156,11 @@ class ScanController extends ChangeNotifier {
       await _storageService.addDocument(doc);
 
       _setStatus(ScanStatus.done);
+      _clearPreparedCache();
       return true;
     } catch (e) {
-      _errorMessage = 'Gagal menyimpan dokumen. Pastikan penyimpanan tidak penuh, lalu coba lagi.';
+      _errorMessage =
+          'Gagal menyimpan dokumen. Pastikan penyimpanan tidak penuh, lalu coba lagi.';
       _setStatus(ScanStatus.error);
       return false;
     }
@@ -150,10 +168,22 @@ class ScanController extends ChangeNotifier {
 
   Future<void> exportPdf() async {
     if (_imagePaths.isEmpty) return;
-    // Resize sebelum masuk PDF — gambar kamera mentah bisa 12–48 MP
-    final preparedPaths = await Future.wait(
-      _imagePaths.map((p) => _enhanceService.prepareForPdf(p)),
-    );
+
+    // Check if we have cached OCR-prepared images we can reuse
+    final preparedPaths = <String>[];
+    for (final originalPath in _imagePaths) {
+      // Try to find cached PDF-prepared version first (highest quality for PDF)
+      if (_preparedForPdfCache.containsKey(originalPath)) {
+        preparedPaths.add(_preparedForPdfCache[originalPath]!);
+      }
+      // Otherwise prepare fresh
+      else {
+        final prepared = await _enhanceService.prepareForPdf(originalPath);
+        preparedPaths.add(prepared);
+        _preparedForPdfCache[originalPath] = prepared;
+      }
+    }
+
     await _pdfService.generatePdf(
       title: titleController.text,
       imagePaths: preparedPaths,
@@ -170,30 +200,48 @@ class ScanController extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ─── Private Helpers ──────────────────────────────────────────────────────────
+  // ─── Private Helpers ──────────────────────────────────────────────────────
 
   void _setStatus(ScanStatus s) {
     _status = s;
     notifyListeners();
   }
 
+  /// Run OCR with caching to avoid reprocessing images
   Future<void> _runOcr() async {
     if (_imagePaths.isEmpty) return;
     _isOcrRunning = true;
     notifyListeners();
 
     try {
-      // Resize + grayscale sebelum OCR — hemat RAM ML Kit, tidak turunkan akurasi
-      final preparedPaths = await Future.wait(
-        _imagePaths.map((p) => _enhanceService.prepareForOcr(p)),
-      );
-      _extractedText = await _ocrService.extractTextFromImages(preparedPaths);
+      // Prepare images for OCR, using cache if available
+      final preparedPaths = <String>[];
+      for (final originalPath in _imagePaths) {
+        if (_preparedForOcrCache.containsKey(originalPath)) {
+          // Use cached prepared version
+          preparedPaths.add(_preparedForOcrCache[originalPath]!);
+        } else {
+          // Prepare fresh and cache
+          final prepared = await _enhanceService.prepareForOcr(originalPath);
+          preparedPaths.add(prepared);
+          _preparedForOcrCache[originalPath] = prepared;
+        }
+      }
+
+      _extractedText =
+          await _ocrService.extractTextFromImages(preparedPaths);
     } catch (_) {
       _extractedText = null;
     } finally {
       _isOcrRunning = false;
       notifyListeners();
     }
+  }
+
+  /// Clear prepared image caches to free memory
+  void _clearPreparedCache() {
+    _preparedForOcrCache.clear();
+    _preparedForPdfCache.clear();
   }
 
   Future<void> _requestGalleryPermission() async {
@@ -208,7 +256,6 @@ class ScanController extends ChangeNotifier {
       if (photos.isGranted) return;
 
       // Fallback Android 13: coba READ_MEDIA_IMAGES lewat storage jika photos ditolak
-      // (beberapa ROM custom Android 13 tidak map Permission.photos dengan benar)
       final storage = await Permission.storage.request();
       if (!storage.isGranted) {
         throw Exception(
@@ -244,6 +291,7 @@ class ScanController extends ChangeNotifier {
   @override
   void dispose() {
     titleController.dispose();
+    _clearPreparedCache();
     super.dispose();
   }
 }
