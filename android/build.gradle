@@ -13,27 +13,6 @@ subprojects {
     project.evaluationDependsOn(':app')
 }
 
-// Fix namespace untuk plugin pihak ketiga yang belum support AGP 8.x
-// document_scanner_flutter tidak punya namespace di build.gradle-nya
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty('android')) {
-            project.android.each {
-                if (it.metaClass.respondsTo(it, 'namespace') &&
-                    (it.namespace == null || it.namespace.isEmpty())) {
-                    // Ambil package dari AndroidManifest.xml sebagai fallback namespace
-                    def manifestFile = project.file('src/main/AndroidManifest.xml')
-                    if (manifestFile.exists()) {
-                        def manifest = new XmlSlurper().parse(manifestFile)
-                        def pkg = manifest.@package?.text()
-                        if (pkg) it.namespace = pkg
-                    }
-                }
-            }
-        }
-    }
-}
-
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
