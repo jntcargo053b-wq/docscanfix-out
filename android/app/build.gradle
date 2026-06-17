@@ -21,6 +21,7 @@ def ksKeyPassword   = System.getenv("KEY_PASSWORD")        ?: localProperties.ge
 android {
     namespace "com.example.docscan"
     compileSdk 36
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
