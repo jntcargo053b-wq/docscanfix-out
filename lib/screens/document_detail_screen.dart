@@ -92,7 +92,6 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen>
           await _ocrService.extractTextFromImages(_doc.imagePaths);
       final updated = _doc.copyWith(
         extractedText: text,
-        updatedAt: DateTime.now(),
       );
       await _storageService.updateDocument(updated);
       setState(() {

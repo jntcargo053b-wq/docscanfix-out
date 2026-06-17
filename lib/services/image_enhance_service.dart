@@ -160,7 +160,7 @@ class ImageEnhanceService {
     // Use built-in filters instead of pixel loops
     image = img.adjustColor(image, brightness: 15);
     image = img.contrast(image, contrast: 25); // contrast scale: 1-100, 50 is neutral
-    image = img.sharpen(image);
+    image = img.convolution(image, filter: [0,-1,0,-1,5,-1,0,-1,0]);
 
     return await _saveTemp(image);
   }
@@ -194,7 +194,7 @@ class ImageEnhanceService {
     }
 
     if (p.sharpen) {
-      image = img.sharpen(image);
+      image = img.convolution(image, filter: [0,-1,0,-1,5,-1,0,-1,0]);
     }
 
     return await _saveTemp(image);

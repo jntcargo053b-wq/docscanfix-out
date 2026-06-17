@@ -1,5 +1,3 @@
-import 'package:intl/intl.dart';
-
 class ScannedDocument {
   final String id;
   final String title;
@@ -57,7 +55,7 @@ class ScannedDocument {
   /// Format created date for display
   String get formattedDate {
     try {
-      return DateFormat('d MMM yyyy, HH:mm').format(createdAt);
+      return '${createdAt.day}/${createdAt.month}/${createdAt.year} ${createdAt.hour.toString().padLeft(2,'0')}:${createdAt.minute.toString().padLeft(2,'0')}';
     } catch (_) {
       return 'Unknown date';
     }
