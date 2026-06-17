@@ -1,9 +1,9 @@
-name: Build Latest APK
+name: Build & Release APK
 
 on:
 push:
-branches:
-- main
+tags:
+- 'v*'
 
 jobs:
 build:
@@ -14,40 +14,38 @@ permissions:
   contents: write
 
 steps:
-  - uses: actions/checkout@v4
+  - name: Checkout
+    uses: actions/checkout@v4
 
-  - uses: actions/setup-java@v4
+  - name: Setup Java 17
+    uses: actions/setup-java@v4
     with:
       distribution: temurin
       java-version: '17'
 
-  - uses: subosito/flutter-action@v2
+  - name: Setup Flutter
+    uses: subosito/flutter-action@v2
     with:
       channel: stable
+      cache: true
 
-  - name: Install dependencies
+  - name: Install Dependencies
     run: flutter pub get
 
   - name: Decode Keystore
-    run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
-
-  - name: Build APK
-    run: flutter build apk --release
-
-  - name: Delete old release
-    continue-on-error: true
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     run: |
-      gh release delete latest -y
-      git push origin :refs/tags/latest
+      echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
 
-  - name: Publish latest release
+  - name: Build Release APK
+    run: |
+      flutter build apk --release \
+        --target-platform android-arm64
+
+  - name: Create Release
     uses: softprops/action-gh-release@v2
     with:
-      tag_name: latest
-      name: Latest APK
       files: build/app/outputs/flutter-apk/app-release.apk
+      generate_release_notes: true
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
