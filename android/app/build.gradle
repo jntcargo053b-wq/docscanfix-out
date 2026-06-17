@@ -1,5 +1,5 @@
 plugins {
-    id "com.android.application" version "8.1.1"
+    id "com.android.application"
     id "org.jetbrains.kotlin.android"
     id "dev.flutter.flutter-gradle-plugin"
 }
@@ -15,7 +15,7 @@ def flutterVersionName = localProperties.getProperty('flutter.versionName', '1.0
 
 android {
     namespace "com.example.docscan"
-    compileSdk 34
+    compileSdk 36
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -29,7 +29,7 @@ android {
     defaultConfig {
         applicationId "com.example.docscan"
         minSdk 21
-        targetSdk 34
+        targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }
