@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
-import '../../../theme/app_theme.dart';
+import 'theme/app_theme.dart';
 
 /// Blocks interaction while a long-running operation (save/export) is running.
 /// Displayed on top of the screen via a [Stack].

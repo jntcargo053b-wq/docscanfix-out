@@ -31,7 +31,7 @@ class ScanBody extends StatelessWidget {
           ScanPageCarousel(
             imagePaths: controller.imagePaths,
             onRemove: controller.removeImage,
-            onAddMore: controller.startScan,
+            onAddMore: () => controller.startScan(context),
           ),
           const Gap(16),
           ScanOcrSection(

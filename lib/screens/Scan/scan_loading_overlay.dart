@@ -33,17 +33,4 @@ class ScanLoadingOverlay extends StatelessWidget {
       ),
     );
   }
-}                message,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
