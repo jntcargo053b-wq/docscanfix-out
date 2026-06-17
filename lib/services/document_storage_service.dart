@@ -254,8 +254,8 @@ class DocumentStorageService {
   // ── Helper methods for background file deletion ──
 
   void _deleteFileInBackground(String path) {
-    File(path).delete().catchError((_) {
-      // Silently ignore file deletion errors
+    File(path).delete().catchError((Object _) {
+      return File(path); // required: catchError must return FileSystemEntity
     });
   }
 
