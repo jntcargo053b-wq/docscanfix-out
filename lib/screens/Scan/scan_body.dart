@@ -1,27 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
-import 'scan_controller.dart';
-import 'widgets/scan_title_input.dart';
-import 'widgets/scan_page_carousel.dart';
-import 'widgets/scan_ocr_section.dart';
-import 'widgets/scan_action_buttons.dart';
+import '../screens/Scan/scan_controller.dart';
+import 'scan_title_input.dart';
+import 'scan_page_carousel.dart';
+import 'scan_ocr_section.dart';
+import 'scan_action_buttons.dart';
 
+/// Scrollable body shown once scanning is complete.
+/// Purely presentational — all callbacks are passed in.
 class ScanBody extends StatelessWidget {
   const ScanBody({
     super.key,
     required this.controller,
     required this.onSave,
     required this.onAddMore,
-    // FIX: tambahkan onShare sebagai parameter agar caller bisa inject handler
-    // yang sudah memiliki mounted-guard yang benar.
-    required this.onShare,
   });
 
   final ScanController controller;
   final VoidCallback onSave;
   final VoidCallback onAddMore;
-  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +45,7 @@ class ScanBody extends StatelessWidget {
             enabled: controller.hasImages && !controller.isProcessing,
             onSave: onSave,
             onExportPdf: () => controller.exportPdf(),
-            onShare: onShare,
+            onShare: controller.shareImages,
           ),
           const Gap(32),
         ],
