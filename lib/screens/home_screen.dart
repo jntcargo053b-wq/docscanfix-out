@@ -6,7 +6,6 @@ import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
 import '../services/scanner_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/document_card.dart';
 import '../widgets/empty_state.dart';
 import 'Scan/scan_screen.dart';
 import 'document_detail_screen.dart';
