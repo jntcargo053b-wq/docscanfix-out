@@ -18,7 +18,6 @@ class ImageEditorScreen extends StatefulWidget {
   State<ImageEditorScreen> createState() => _ImageEditorScreenState();
 }
 
-enum _EditorTab { transform }
 
 class _ImageEditorScreenState extends State<ImageEditorScreen> {
   final _enhanceService = ImageEnhanceService();
@@ -26,8 +25,6 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
   late String _currentPath;
   late String _originalPath;
   bool _isProcessing = false;
-
-  _EditorTab _activeTab = _EditorTab.transform;
 
   // Crop state
   bool _isCropping = false;
