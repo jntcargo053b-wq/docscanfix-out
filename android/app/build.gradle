@@ -13,9 +13,10 @@ if (localPropertiesFile.exists()) {
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode', '1')
 def flutterVersionName = localProperties.getProperty('flutter.versionName', '1.0')
 
-def storePassword = System.getenv("KEY_STORE_PASSWORD") ?: localProperties.getProperty("KEY_STORE_PASSWORD", "")
-def keyAlias      = System.getenv("KEY_ALIAS")          ?: localProperties.getProperty("KEY_ALIAS", "")
-def keyPassword   = System.getenv("KEY_PASSWORD")       ?: localProperties.getProperty("KEY_PASSWORD", "")
+// Prefix "ks" agar tidak bentrok dengan DSL setter di dalam signingConfigs block
+def ksStorePassword = System.getenv("KEY_STORE_PASSWORD") ?: localProperties.getProperty("KEY_STORE_PASSWORD", "")
+def ksKeyAlias      = System.getenv("KEY_ALIAS")          ?: localProperties.getProperty("KEY_ALIAS", "")
+def ksKeyPassword   = System.getenv("KEY_PASSWORD")        ?: localProperties.getProperty("KEY_PASSWORD", "")
 
 android {
     namespace "com.example.docscan"
@@ -32,10 +33,10 @@ android {
 
     signingConfigs {
         release {
-            storeFile     file("keystore.jks")   // selalu di android/app/keystore.jks
-            storePassword storePassword
-            keyAlias      keyAlias
-            keyPassword   keyPassword
+            storeFile     file("keystore.jks")
+            storePassword ksStorePassword
+            keyAlias      ksKeyAlias
+            keyPassword   ksKeyPassword
         }
     }
 
