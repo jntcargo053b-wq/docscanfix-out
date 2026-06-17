@@ -137,7 +137,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen>
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppTheme.textSecondary.withOpacity(0.4),
+                    color: AppTheme.textSecondary.withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -384,7 +384,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen>
             label: 'Share',
             isLoading: _isSharing,
             onTap: _showShareSheet,
-            color: AppTheme.primary.withOpacity(0.15),
+            color: AppTheme.primary.withValues(alpha: 0.15),
             textColor: AppTheme.primary,
           ),
         ],
@@ -622,7 +622,7 @@ class _ShareOption extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: color, size: 20),
