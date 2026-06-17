@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
-import 'theme/app_theme.dart';
+import '../../../theme/app_theme.dart';
 
 /// Blocks interaction while a long-running operation (save/export) is running.
 /// Displayed on top of the screen via a [Stack].
@@ -22,7 +22,7 @@ class ScanLoadingOverlay extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.15),
+                color: Colors.black.withValues(alpha: 0.15),
                 blurRadius: 24,
                 offset: const Offset(0, 8),
               ),
