@@ -1,18 +1,63 @@
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode', '1')
+def flutterVersionName = localProperties.getProperty('flutter.versionName', '1.0')
+
+// Baca signing credentials dari environment variable (CI) atau local.properties (dev lokal)
+def keystoreFile     = System.getenv("KEY_STORE_FILE")     ?: localProperties.getProperty("KEY_STORE_FILE", "keystore.jks")
+def storePassword    = System.getenv("KEY_STORE_PASSWORD") ?: localProperties.getProperty("KEY_STORE_PASSWORD", "")
+def keyAlias         = System.getenv("KEY_ALIAS")          ?: localProperties.getProperty("KEY_ALIAS", "")
+def keyPassword      = System.getenv("KEY_PASSWORD")       ?: localProperties.getProperty("KEY_PASSWORD", "")
+
+android {
+    namespace "com.example.docscan"
+    compileSdk 36
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    signingConfigs {
+        release {
+            storeFile     file(keystoreFile)
+            storePassword storePassword
+            keyAlias      keyAlias
+            keyPassword   keyPassword
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.example.docscan"
+        minSdk 21
+        targetSdk 36
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release   // ← pakai release key, bukan debug
+            minifyEnabled false
+            shrinkResources false
+        }
     }
 }
 
-rootProject.buildDir = '../build'
-subprojects {
-    project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
-    project.evaluationDependsOn(':app')
-}
-
-tasks.register("clean", Delete) {
-    delete rootProject.buildDir
+flutter {
+    source '../..'
 }
