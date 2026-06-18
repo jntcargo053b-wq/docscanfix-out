@@ -39,16 +39,16 @@ android {
     }
 
     signingConfigs {
-        release {
-            storeFile keystoreProperties['storeFile']
-                    ? file(keystoreProperties['storeFile'])
-                    : null
+    release {
+        storeFile keystoreProperties['storeFile']
+                ? file(keystoreProperties['storeFile'])
+                : null
 
-            storePassword keystoreProperties['storePassword']
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-        }
+        storePassword keystoreProperties['storePassword']
+        keyAlias keystoreProperties['keyAlias']
+        keyPassword keystoreProperties['keyPassword']
     }
+}
 
     defaultConfig {
         applicationId "com.example.docscan"
