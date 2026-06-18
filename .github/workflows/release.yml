@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: write   # diperlukan softprops/action-gh-release untuk buat Release
+      contents: write
 
     steps:
       - name: Checkout
@@ -51,19 +51,24 @@ jobs:
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d ' \n\r' | base64 --decode \
             > android/app/keystore.jks
+          keytool -list \
+            -keystore android/app/keystore.jks \
+            -storepass "${{ secrets.KEY_STORE_PASSWORD }}" \
+            -alias "${{ secrets.KEY_ALIAS }}" \
+            -noprompt
 
       - name: Build Release APK
-        run: |
-          flutter build apk --release \
-            --target-platform android-arm64
         env:
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          flutter build apk --release \
+            --target-platform android-arm64
 
       - name: Rename APK dengan versi tag
         run: |
-          VERSION=${GITHUB_REF_NAME}          # contoh: v1.0.0
+          VERSION=${GITHUB_REF_NAME}
           mv build/app/outputs/flutter-apk/app-release.apk \
              build/app/outputs/flutter-apk/docscan-${VERSION}.apk
 

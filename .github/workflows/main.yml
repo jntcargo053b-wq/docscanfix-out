@@ -26,17 +26,14 @@ jobs:
           cache: true
 
       - name: Decode Keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
-
-      - name: Create key.properties
-        run: |
-          echo "storeFile=android/app/upload-keystore.jks" > android/key.properties
-          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> android/key.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d ' \n\r' | base64 --decode \
+            > android/app/keystore.jks
+          keytool -list \
+            -keystore android/app/keystore.jks \
+            -storepass "${{ secrets.KEY_STORE_PASSWORD }}" \
+            -alias "${{ secrets.KEY_ALIAS }}" \
+            -noprompt
 
       - name: Clean and get dependencies
         run: |
@@ -49,6 +46,10 @@ jobs:
           flutter test
 
       - name: Build release APKs (split per ABI)
+        env:
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: flutter build apk --release --split-per-abi
 
       - name: List APK files
