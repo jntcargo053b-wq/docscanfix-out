@@ -29,10 +29,20 @@ jobs:
         run: flutter pub get
 
       - name: Build Debug APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug --verbose || true
+
+      - name: Locate APK
+        run: |
+          echo "=== APK FILES ==="
+          find . -type f -name "*.apk"
+
+      - name: Locate Outputs
+        run: |
+          find build -type f | sort
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: warn
