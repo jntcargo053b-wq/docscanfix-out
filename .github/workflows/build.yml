@@ -1,12 +1,12 @@
 name: Build and Release APK
 
 on:
-  workflow_dispatch:          # manual trigger dari tab Actions
+  workflow_dispatch:
   push:
     branches:
-      - main                  # setiap push ke main -> build debug (untuk tes)
+      - main
     tags:
-      - 'v*'                  # tag seperti v1.0.0 -> build release + buat Release
+      - 'v*'
 
 jobs:
   build:
@@ -26,39 +26,47 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # flutter-version: '3.22.0'  # opsional, biarkan kosong = terbaru stabil
+          flutter-version: '3.22.4'   # versi stabil yang kompatibel
+
+      - name: Flutter Doctor
+        run: flutter doctor -v
+
+      # 🔧 Perbaiki konflik AGP 9+ dengan menurunkan AGP ke 8.4.0
+      - name: Fix AGP version
+        run: |
+          # Ubah classpath di android/build.gradle
+          sed -i 's/classpath "com.android.tools.build:gradle:.*"/classpath "com.android.tools.build:gradle:8.4.0"/' android/build.gradle
+          # Ubah distribusi gradle di gradle/wrapper/gradle-wrapper.properties
+          sed -i 's/distributionUrl=.*/distributionUrl=https\\:\\/\\/services.gradle.org\\/distributions\\/gradle-8.6-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
+          # Tambahkan android.newDsl=false ke gradle.properties jika belum ada
+          echo "android.newDsl=false" >> android/gradle.properties
 
       - name: Flutter Pub Get
         run: flutter pub get
 
-      # ---- Build DEBUG (untuk push ke main / manual) ----
-      - name: Build Debug APK
+      - name: Build Debug APK (main branch / manual)
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         run: flutter build apk --debug
 
-      - name: Upload Debug APK (artefak)
+      - name: Upload Debug APK
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: warn
 
-      # ---- Build RELEASE (hanya jika tag) ----
-      - name: Build Release APK (split per ABI)
+      - name: Build Release APK (tags)
         if: startsWith(github.ref, 'refs/tags/')
         run: flutter build apk --release --split-per-abi
 
-      # Jika Anda mau satu APK universal (lebih besar), ganti baris di atas dengan:
-      # run: flutter build apk --release
-
-      - name: Upload Release APKs (artefak)
+      - name: Upload Release APKs
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: build/app/outputs/flutter-apk/*.apk
 
-      # ---- Buat GitHub Release (jika tag) ----
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
