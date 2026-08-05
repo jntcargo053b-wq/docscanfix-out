@@ -1,10 +1,12 @@
-name: Build APK
+name: Build and Release APK
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:          # manual trigger dari tab Actions
   push:
     branches:
-      - main
+      - main                  # setiap push ke main -> build debug (untuk tes)
+    tags:
+      - 'v*'                  # tag seperti v1.0.0 -> build release + buat Release
 
 jobs:
   build:
@@ -24,25 +26,44 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          # flutter-version: '3.22.0'  # opsional, biarkan kosong = terbaru stabil
 
       - name: Flutter Pub Get
         run: flutter pub get
 
+      # ---- Build DEBUG (untuk push ke main / manual) ----
       - name: Build Debug APK
-        run: flutter build apk --debug --verbose || true
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        run: flutter build apk --debug
 
-      - name: Locate APK
-        run: |
-          echo "=== APK FILES ==="
-          find . -type f -name "*.apk"
-
-      - name: Locate Outputs
-        run: |
-          find build -type f | sort
-
-      - name: Upload APK
+      - name: Upload Debug APK (artefak)
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: warn
+
+      # ---- Build RELEASE (hanya jika tag) ----
+      - name: Build Release APK (split per ABI)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: flutter build apk --release --split-per-abi
+
+      # Jika Anda mau satu APK universal (lebih besar), ganti baris di atas dengan:
+      # run: flutter build apk --release
+
+      - name: Upload Release APKs (artefak)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/app/outputs/flutter-apk/*.apk
+
+      # ---- Buat GitHub Release (jika tag) ----
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/app/outputs/flutter-apk/*.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
