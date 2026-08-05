@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
-import 'dart:io';
 import '../models/scanned_document.dart';
 import '../theme/app_theme.dart';
 
@@ -9,37 +8,71 @@ class DocumentCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
+  // FEATURE: dukungan mode pilih-banyak (multi-select) dari halaman list.
+  final bool isSelectionMode;
+  final bool isSelected;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onSelectToggle;
+
   const DocumentCard({
     super.key,
     required this.document,
     required this.onTap,
     required this.onDelete,
+    this.isSelectionMode = false,
+    this.isSelected = false,
+    this.onLongPress,
+    this.onSelectToggle,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: isSelectionMode ? onSelectToggle : onTap,
+      onLongPress: onLongPress,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.surfaceLight),
+          border: Border.all(
+            color: isSelected ? AppTheme.primary : AppTheme.surfaceLight,
+            width: isSelected ? 1.5 : 1,
+          ),
         ),
         child: Row(
           children: [
-            // Thumbnail
+            if (isSelectionMode) ...[
+              _buildCheckbox(),
+              const Gap(10),
+            ],
             _buildThumbnail(),
             const Gap(14),
-            // Info
             Expanded(child: _buildInfo(context)),
-            // Menu
-            _buildMenu(context),
+            if (!isSelectionMode) _buildMenu(context),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildCheckbox() {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: isSelected ? AppTheme.primary : Colors.transparent,
+        border: Border.all(
+          color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
+          width: 1.5,
+        ),
+      ),
+      child: isSelected
+          ? const Icon(Icons.check, size: 14, color: Colors.black)
+          : null,
     );
   }
 
@@ -47,28 +80,22 @@ class DocumentCard extends StatelessWidget {
     final firstImage = document.imagePaths.isNotEmpty
         ? document.imagePaths.first
         : null;
-    final file = firstImage != null ? File(firstImage) : null;
-
     return Container(
-      width: 56,
-      height: 72,
+      width: 60,
+      height: 60,
       decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
         color: AppTheme.surfaceLight,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.surfaceLight),
+        image: firstImage != null
+            ? DecorationImage(
+                image: FileImage(File(firstImage)),
+                fit: BoxFit.cover,
+              )
+            : null,
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: file != null && file.existsSync()
-            ? Image.file(file, fit: BoxFit.cover)
-            : Container(
-                color: AppTheme.surfaceLight,
-                child: const Center(
-                  child: Icon(Icons.description_outlined,
-                      color: AppTheme.textSecondary, size: 24),
-                ),
-              ),
-      ),
+      child: firstImage == null
+          ? const Icon(Icons.image_outlined, color: AppTheme.textSecondary)
+          : null,
     );
   }
 
@@ -78,99 +105,52 @@ class DocumentCard extends StatelessWidget {
       children: [
         Text(
           document.title,
-          style: Theme.of(context).textTheme.titleMedium,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
         const Gap(4),
-        Row(
-          children: [
-            _badge('${document.pageCount} hal', Icons.layers_outlined),
-            const Gap(8),
-            if (document.extractedText?.isNotEmpty ?? false)
-              _badge('OCR', Icons.text_snippet_outlined, color: AppTheme.primary),
-            if (document.pdfPath != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: _badge('PDF', Icons.picture_as_pdf_outlined,
-                    color: AppTheme.warning),
-              ),
-          ],
-        ),
-        const Gap(6),
         Text(
-          _formatDate(document.createdAt),
-          style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+          '${document.imagePaths.length} halaman',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppTheme.textSecondary,
+              ),
         ),
+        if (document.extractedText != null) ...[
+          const Gap(4),
+          Text(
+            document.extractedText!,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppTheme.textSecondary,
+                ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
       ],
     );
   }
 
   Widget _buildMenu(BuildContext context) {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert, color: AppTheme.textSecondary, size: 20),
-      color: AppTheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      itemBuilder: (_) => [
-        const PopupMenuItem(
-          value: 'open',
-          child: ListTile(
-            leading: Icon(Icons.open_in_new_outlined, size: 18),
-            title: Text('Buka', style: TextStyle(fontSize: 14)),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-          ),
-        ),
+    return PopupMenuButton(
+      icon: const Icon(Icons.more_vert, color: AppTheme.textSecondary),
+      onSelected: (value) {
+        if (value == 'delete') onDelete();
+      },
+      itemBuilder: (ctx) => [
         const PopupMenuItem(
           value: 'delete',
-          child: ListTile(
-            leading: Icon(Icons.delete_outline,
-                size: 18, color: AppTheme.error),
-            title: Text('Hapus',
-                style: TextStyle(fontSize: 14, color: AppTheme.error)),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
+          child: Row(
+            children: [
+              Icon(Icons.delete_outline, color: AppTheme.error),
+              Gap(8),
+              Text('Hapus', style: TextStyle(color: AppTheme.error)),
+            ],
           ),
         ),
       ],
-      onSelected: (val) {
-        if (val == 'open') onTap();
-        if (val == 'delete') onDelete();
-      },
     );
-  }
-
-  Widget _badge(String label, IconData icon,
-      {Color color = AppTheme.textSecondary}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 10, color: color),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: TextStyle(
-              color: color,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final diff = now.difference(date);
-    if (diff.inDays == 0) return 'Hari ini, ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-    if (diff.inDays == 1) return 'Kemarin';
-    return '${date.day}/${date.month}/${date.year}';
   }
 }
