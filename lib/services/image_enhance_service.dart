@@ -35,6 +35,32 @@ Future<String> _prepareForPdfIsolate(String imagePath) async {
   return svc._processPrepareForPdf(imagePath);
 }
 
+// PERF FIX: rotate/flip/crop sebelumnya jalan langsung di main isolate
+// (komentar lama bilang "ringan, tidak perlu isolate"), padahal tetap
+// decode+encode JPEG resolusi kamera asli (bisa puluhan MP) — cukup berat
+// untuk nge-jank UI thread saat dipanggil interaktif dari image editor.
+// Disamakan pola dengan operasi lain: top-level function + compute().
+
+Future<String> _rotate90Isolate(String imagePath) async {
+  final svc = ImageEnhanceService();
+  return svc._processRotate(imagePath, 90);
+}
+
+Future<String> _rotate90CCWIsolate(String imagePath) async {
+  final svc = ImageEnhanceService();
+  return svc._processRotate(imagePath, -90);
+}
+
+Future<String> _flipHorizontalIsolate(String imagePath) async {
+  final svc = ImageEnhanceService();
+  return svc._processFlipHorizontal(imagePath);
+}
+
+Future<String> _cropIsolate(_CropParams p) async {
+  final svc = ImageEnhanceService();
+  return svc._processCrop(p);
+}
+
 // ── Parameter classes ───────────────────────────────────────────────────────
 
 class _ManualParams {
@@ -50,6 +76,12 @@ class _CompressParams {
   final int maxDimension;
   final int quality;
   _CompressParams(this.imagePath, this.maxDimension, this.quality);
+}
+
+class _CropParams {
+  final String imagePath;
+  final double left, top, right, bottom;
+  _CropParams(this.imagePath, this.left, this.top, this.right, this.bottom);
 }
 
 // ── Main service ──────────────────────────────────────────────────────────
@@ -102,31 +134,19 @@ class ImageEnhanceService {
   Future<String> prepareForPdf(String imagePath) =>
       compute(_prepareForPdfIsolate, imagePath);
 
-  // ── Rotate & Flip (ringan, tidak perlu isolate) ──
+  // ── Rotate & Flip (pakai compute = background isolate) ──
+  // PERF FIX: decode+encode JPEG resolusi kamera asli tidak "ringan" —
+  // dijalankan di isolate terpisah sama seperti operasi enhance lain,
+  // supaya UI thread tidak freeze saat user tap rotate/flip/crop.
 
-  Future<String> rotate90(String imagePath) async {
-    final bytes = await File(imagePath).readAsBytes();
-    var image = img.decodeImage(bytes);
-    if (image == null) return imagePath;
-    image = img.copyRotate(image, angle: 90);
-    return await _saveTemp(image);
-  }
+  Future<String> rotate90(String imagePath) =>
+      compute(_rotate90Isolate, imagePath);
 
-  Future<String> rotate90CCW(String imagePath) async {
-    final bytes = await File(imagePath).readAsBytes();
-    var image = img.decodeImage(bytes);
-    if (image == null) return imagePath;
-    image = img.copyRotate(image, angle: -90);
-    return await _saveTemp(image);
-  }
+  Future<String> rotate90CCW(String imagePath) =>
+      compute(_rotate90CCWIsolate, imagePath);
 
-  Future<String> flipHorizontal(String imagePath) async {
-    final bytes = await File(imagePath).readAsBytes();
-    var image = img.decodeImage(bytes);
-    if (image == null) return imagePath;
-    image = img.flipHorizontal(image);
-    return await _saveTemp(image);
-  }
+  Future<String> flipHorizontal(String imagePath) =>
+      compute(_flipHorizontalIsolate, imagePath);
 
   Future<String> crop(
     String imagePath, {
@@ -134,33 +154,125 @@ class ImageEnhanceService {
     required double top,
     required double right,
     required double bottom,
-  }) async {
+  }) =>
+      compute(_cropIsolate, _CropParams(imagePath, left, top, right, bottom));
+
+  // ── INTERNAL (dipanggil dari isolate) ──
+
+  Future<String> _processRotate(String imagePath, int angle) async {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
     if (image == null) return imagePath;
-    final x = (left * image.width).round().clamp(0, image.width - 1);
-    final y = (top * image.height).round().clamp(0, image.height - 1);
-    final w = ((right - left) * image.width).round().clamp(1, image.width - x);
-    final h = ((bottom - top) * image.height).round().clamp(1, image.height - y);
+    image = img.copyRotate(image, angle: angle);
+    return await _saveTemp(image);
+  }
+
+  Future<String> _processFlipHorizontal(String imagePath) async {
+    final bytes = await File(imagePath).readAsBytes();
+    var image = img.decodeImage(bytes);
+    if (image == null) return imagePath;
+    image = img.flipHorizontal(image);
+    return await _saveTemp(image);
+  }
+
+  Future<String> _processCrop(_CropParams p) async {
+    final bytes = await File(p.imagePath).readAsBytes();
+    var image = img.decodeImage(bytes);
+    if (image == null) return p.imagePath;
+    final x = (p.left * image.width).round().clamp(0, image.width - 1);
+    final y = (p.top * image.height).round().clamp(0, image.height - 1);
+    final w =
+        ((p.right - p.left) * image.width).round().clamp(1, image.width - x);
+    final h =
+        ((p.bottom - p.top) * image.height).round().clamp(1, image.height - y);
     image = img.copyCrop(image, x: x, y: y, width: w, height: h);
     return await _saveTemp(image);
   }
 
-  // ── INTERNAL (dipanggil dari isolate) ──
-
-  /// Auto-enhance using built-in filters instead of pixel loops.
-  /// ~5-10x faster than manual per-pixel operations.
+  /// Auto-enhance berbasis histogram (percentile black/white point stretch).
+  ///
+  /// Implementasi lama pakai offset TETAP (+15 brightness, +25 contrast)
+  /// untuk SEMUA foto tanpa peduli kondisi pencahayaan aslinya. Ini
+  /// berbahaya untuk dokumen yang sudah cerah (kertas putih, kena flash,
+  /// cahaya kuat) — offset tetap mendorong pixel yang sudah dekat 255
+  /// makin nge-clip ke putih murni, teks tipis jadi hilang.
+  ///
+  /// Sekarang titik hitam & titik putih dihitung dari histogram luminance
+  /// foto itu sendiri (persentil 1%/99%, BUKAN nilai min/max mentah — supaya
+  /// tidak terpengaruh outlier seperti satu titik pantulan cahaya kecil),
+  /// baru pixel-nya di-stretch secara linear ke rentang 0-255. Kalau
+  /// dynamic range foto sudah lebar (>150 level, artinya sudah kontras),
+  /// stretch di-skip supaya tidak over-process foto yang sudah bagus.
   Future<String> _processAutoEnhance(String imagePath) async {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
     if (image == null) return imagePath;
 
-    // Use built-in filters instead of pixel loops
-    image = img.adjustColor(image, brightness: 15);
-    image = img.contrast(image, contrast: 25); // contrast scale: 1-100, 50 is neutral
-    image = img.convolution(image, filter: [0,-1,0,-1,5,-1,0,-1,0]);
+    final stretch = _computeHistogramStretch(image);
+    if (stretch != null) {
+      image = _applyStretch(image, stretch.$1, stretch.$2);
+    }
+
+    // Sharpen diterapkan SETELAH stretch (bukan sebelum) supaya tidak ikut
+    // menajamkan noise dari pixel yang baru saja di-clip.
+    image = img.convolution(image, filter: [0, -1, 0, -1, 5, -1, 0, -1, 0]);
 
     return await _saveTemp(image);
+  }
+
+  /// Hitung titik hitam (persentil 1%) & titik putih (persentil 99%) dari
+  /// histogram luminance. Histogram dihitung dari versi downscale 300px
+  /// (bukan resolusi penuh) supaya cepat — cukup representatif untuk
+  /// menentukan dynamic range foto.
+  ///
+  /// Return null kalau dynamic range sudah lebar (>150 level) — dianggap
+  /// sudah cukup kontras, tidak perlu di-stretch lagi.
+  (int, int)? _computeHistogramStretch(img.Image image) {
+    final sample =
+        image.width > 300 ? img.copyResize(image, width: 300) : image;
+
+    final hist = List<int>.filled(256, 0);
+    for (final px in sample) {
+      final l = img.getLuminance(px).round().clamp(0, 255);
+      hist[l]++;
+    }
+
+    final total = sample.width * sample.height;
+    final edgeCount = (total * 0.01).round().clamp(1, total);
+
+    int low = 0;
+    int cum = 0;
+    for (int i = 0; i < 256; i++) {
+      cum += hist[i];
+      if (cum >= edgeCount) {
+        low = i;
+        break;
+      }
+    }
+
+    int high = 255;
+    cum = 0;
+    for (int i = 255; i >= 0; i--) {
+      cum += hist[i];
+      if (cum >= edgeCount) {
+        high = i;
+        break;
+      }
+    }
+
+    if (high <= low || (high - low) > 150) return null;
+    return (low, high);
+  }
+
+  /// Stretch linear seluruh channel RGB dari rentang [low, high] ke [0, 255].
+  img.Image _applyStretch(img.Image image, int low, int high) {
+    final range = (high - low).clamp(1, 255);
+    for (final px in image) {
+      px.r = (((px.r - low) / range) * 255).clamp(0, 255);
+      px.g = (((px.g - low) / range) * 255).clamp(0, 255);
+      px.b = (((px.b - low) / range) * 255).clamp(0, 255);
+    }
+    return image;
   }
 
   Future<String> _processManualEnhance(_ManualParams p) async {
