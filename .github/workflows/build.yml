@@ -26,20 +26,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.22.4'   # versi stabil yang kompatibel
+          cache: true
 
       - name: Flutter Doctor
         run: flutter doctor -v
-
-      # 🔧 Perbaiki konflik AGP 9+ dengan menurunkan AGP ke 8.4.0
-      - name: Fix AGP version
-        run: |
-          # Ubah classpath di android/build.gradle
-          sed -i 's/classpath "com.android.tools.build:gradle:.*"/classpath "com.android.tools.build:gradle:8.4.0"/' android/build.gradle
-          # Ubah distribusi gradle di gradle/wrapper/gradle-wrapper.properties
-          sed -i 's/distributionUrl=.*/distributionUrl=https\\:\\/\\/services.gradle.org\\/distributions\\/gradle-8.6-bin.zip/' android/gradle/wrapper/gradle-wrapper.properties
-          # Tambahkan android.newDsl=false ke gradle.properties jika belum ada
-          echo "android.newDsl=false" >> android/gradle.properties
 
       - name: Flutter Pub Get
         run: flutter pub get
