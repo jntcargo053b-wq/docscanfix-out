@@ -20,6 +20,8 @@ class ImageEditorScreen extends StatefulWidget {
 
 enum _EditorTab { transform, enhance }
 
+enum _Preset { auto, soft, strong, color, original }
+
 class _ImageEditorScreenState extends State<ImageEditorScreen> {
   final _enhanceService = ImageEnhanceService();
 
@@ -45,6 +47,14 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
   double _saturation = 1.0;
   bool _sharpen = false;
   bool _grayscale = false;
+
+  // Preset yang terakhir diterapkan — null kalau user sedang pakai slider
+  // manual (custom), dipakai cuma untuk highlight chip yang aktif.
+  _Preset? _activePreset;
+
+  // "Pengaturan Lanjutan" (slider manual) disembunyikan default supaya
+  // user awam cukup pilih preset tanpa harus mengerti brightness/contrast.
+  bool _showAdvanced = false;
 
   bool get _hasPendingManualChanges =>
       _brightness != 1.0 ||
@@ -128,16 +138,68 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
 
   // ── ENHANCE ─────────────────────────────────────────
 
-  /// Terapkan histogram-based auto enhance (lihat ImageEnhanceService).
-  /// Adaptif terhadap kecerahan foto asli — tidak akan membakar foto yang
-  /// sudah cerah jadi makin putih seperti implementasi lama.
-  Future<void> _applyAutoEnhance() async {
+  /// Terapkan preset siap-pakai. Semua preset (kecuali "Original") jalan
+  /// dari _currentPath (bisa ditumpuk dengan hasil crop/rotate sebelumnya),
+  /// dan mereset slider manual ke netral supaya "Pengaturan Lanjutan"
+  /// selalu mulai relatif terhadap hasil preset yang baru diterapkan.
+  Future<void> _applyPreset(_Preset preset) async {
+    if (preset == _Preset.original) {
+      _resetToOriginal();
+      return;
+    }
+
     setState(() => _isProcessing = true);
     try {
-      final result = await _enhanceService.autoEnhance(_currentPath);
-      setState(() => _currentPath = result);
+      final String result;
+      switch (preset) {
+        case _Preset.auto:
+          // Histogram-based stretch — aman dipakai berkali-kali, tidak
+          // akan membuat foto makin putih (lihat ImageEnhanceService).
+          result = await _enhanceService.autoEnhance(_currentPath);
+          break;
+        case _Preset.soft:
+          // Koreksi ringan untuk dokumen yang cuma butuh sedikit dorongan
+          // — cocok untuk hasil scan yang sudah cukup baik.
+          result = await _enhanceService.manualEnhance(
+            _currentPath,
+            brightness: 1.08,
+            contrast: 1.05,
+          );
+          break;
+        case _Preset.strong:
+          // Kontras tinggi + sharpen — untuk dokumen dengan tulisan pudar/
+          // tipis yang butuh penegasan tepi teks. Brightness sengaja
+          // ditahan rendah supaya tidak menambah risiko overexpose.
+          result = await _enhanceService.manualEnhance(
+            _currentPath,
+            brightness: 1.02,
+            contrast: 1.3,
+            sharpen: true,
+          );
+          break;
+        case _Preset.color:
+          // Pertahankan warna asli dokumen (foto produk, majalah, dsb) —
+          // saturasi dinaikkan tanpa threshold hitam-putih.
+          result = await _enhanceService.manualEnhance(
+            _currentPath,
+            saturation: 1.35,
+            contrast: 1.08,
+          );
+          break;
+        case _Preset.original:
+          return; // sudah ditangani di awal fungsi
+      }
+      setState(() {
+        _currentPath = result;
+        _activePreset = preset;
+        _brightness = 1.0;
+        _contrast = 1.0;
+        _saturation = 1.0;
+        _sharpen = false;
+        _grayscale = false;
+      });
     } catch (e) {
-      _showError('Gagal menerapkan enhance otomatis: $e');
+      _showError('Gagal menerapkan preset: $e');
     } finally {
       setState(() => _isProcessing = false);
     }
@@ -162,6 +224,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
       );
       setState(() {
         _currentPath = result;
+        _activePreset = null; // custom — bukan salah satu preset lagi
         _brightness = 1.0;
         _contrast = 1.0;
         _saturation = 1.0;
@@ -186,6 +249,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
       _saturation = 1.0;
       _sharpen = false;
       _grayscale = false;
+      _activePreset = _Preset.original;
     });
   }
 
@@ -535,95 +599,222 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
   Widget _buildEnhanceControls() {
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Auto enhance — histogram-based, aman untuk foto yang sudah putih
+        const Text(
+          'Pilih mode, atau buka Pengaturan Lanjutan untuk atur manual.',
+          style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
+        const Gap(10),
+
+        // Preset chips — user awam cukup pilih salah satu, tidak perlu
+        // mengerti brightness/contrast. Semua preset memanggil service
+        // yang sama dengan mode manual, jadi hasilnya konsisten.
         SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: _isProcessing ? null : _applyAutoEnhance,
-            icon: const Icon(Icons.auto_fix_high, size: 18),
-            label: const Text('Enhance Otomatis'),
+          height: 84,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [
+              _buildPresetChip(
+                preset: _Preset.auto,
+                icon: Icons.auto_fix_high,
+                label: 'Auto',
+                subtitle: 'Histogram',
+                onTap: () => _applyPreset(_Preset.auto),
+              ),
+              _buildPresetChip(
+                preset: _Preset.soft,
+                icon: Icons.wb_sunny_outlined,
+                label: 'Soft',
+                subtitle: 'Koreksi ringan',
+                onTap: () => _applyPreset(_Preset.soft),
+              ),
+              _buildPresetChip(
+                preset: _Preset.strong,
+                icon: Icons.contrast,
+                label: 'Strong',
+                subtitle: 'Teks pudar',
+                onTap: () => _applyPreset(_Preset.strong),
+              ),
+              _buildPresetChip(
+                preset: _Preset.color,
+                icon: Icons.palette_outlined,
+                label: 'Color',
+                subtitle: 'Warna asli',
+                onTap: () => _applyPreset(_Preset.color),
+              ),
+              _buildPresetChip(
+                preset: _Preset.original,
+                icon: Icons.restart_alt,
+                label: 'Original',
+                subtitle: 'Tanpa efek',
+                onTap: () => _applyPreset(_Preset.original),
+              ),
+            ],
           ),
         ),
         const Gap(4),
-        const Text(
-          'Menyesuaikan kontras berdasarkan foto ini — aman dipakai '
-          'berkali-kali, tidak akan membuat foto makin putih.',
-          style: TextStyle(fontSize: 11, color: AppTheme.textSecondary),
-          textAlign: TextAlign.center,
-        ),
-        const Gap(16),
 
-        _buildSlider(
-          label: 'Kecerahan',
-          value: _brightness,
-          min: 0.5,
-          max: 1.5,
-          onChanged: (v) => setState(() => _brightness = v),
-        ),
-        _buildSlider(
-          label: 'Kontras',
-          value: _contrast,
-          min: 0.5,
-          max: 1.5,
-          onChanged: (v) => setState(() => _contrast = v),
-        ),
-        if (!_grayscale)
-          _buildSlider(
-            label: 'Saturasi',
-            value: _saturation,
-            min: 0.0,
-            max: 2.0,
-            onChanged: (v) => setState(() => _saturation = v),
-          ),
-
-        Row(
-          children: [
-            Expanded(
-              child: SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                title: const Text('Hitam Putih',
-                    style: TextStyle(fontSize: 13)),
-                value: _grayscale,
-                activeColor: AppTheme.primary,
-                onChanged: (v) => setState(() => _grayscale = v),
-              ),
-            ),
-            Expanded(
-              child: SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                title: const Text('Tajamkan',
-                    style: TextStyle(fontSize: 13)),
-                value: _sharpen,
-                activeColor: AppTheme.primary,
-                onChanged: (v) => setState(() => _sharpen = v),
-              ),
-            ),
-          ],
-        ),
-        const Gap(8),
-
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: (_isProcessing || !_hasPendingManualChanges)
-                ? null
-                : _applyManualEnhance,
-            child: const Text('Terapkan'),
-          ),
-        ),
-        const Gap(8),
-
+        // Pengaturan Lanjutan — slider manual, disembunyikan default.
         TextButton.icon(
-          onPressed: _isProcessing ? null : _resetToOriginal,
-          icon: const Icon(Icons.refresh, size: 16),
-          label: const Text('Reset ke Asli'),
+          onPressed: _isProcessing
+              ? null
+              : () => setState(() => _showAdvanced = !_showAdvanced),
+          icon: Icon(
+            _showAdvanced ? Icons.expand_less : Icons.expand_more,
+            size: 18,
+          ),
+          label: const Text('Pengaturan Lanjutan'),
           style: TextButton.styleFrom(
               foregroundColor: AppTheme.textSecondary),
         ),
+
+        if (_showAdvanced) ...[
+          const Gap(4),
+          _buildSlider(
+            label: 'Kecerahan',
+            value: _brightness,
+            min: 0.5,
+            max: 1.5,
+            onChanged: (v) => setState(() {
+              _brightness = v;
+              _activePreset = null;
+            }),
+          ),
+          _buildSlider(
+            label: 'Kontras',
+            value: _contrast,
+            min: 0.5,
+            max: 1.5,
+            onChanged: (v) => setState(() {
+              _contrast = v;
+              _activePreset = null;
+            }),
+          ),
+          if (!_grayscale)
+            _buildSlider(
+              label: 'Saturasi',
+              value: _saturation,
+              min: 0.0,
+              max: 2.0,
+              onChanged: (v) => setState(() {
+                _saturation = v;
+                _activePreset = null;
+              }),
+            ),
+
+          Row(
+            children: [
+              Expanded(
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Hitam Putih',
+                      style: TextStyle(fontSize: 13)),
+                  value: _grayscale,
+                  activeColor: AppTheme.primary,
+                  onChanged: (v) => setState(() {
+                    _grayscale = v;
+                    _activePreset = null;
+                  }),
+                ),
+              ),
+              Expanded(
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Tajamkan',
+                      style: TextStyle(fontSize: 13)),
+                  value: _sharpen,
+                  activeColor: AppTheme.primary,
+                  onChanged: (v) => setState(() {
+                    _sharpen = v;
+                    _activePreset = null;
+                  }),
+                ),
+              ),
+            ],
+          ),
+          const Gap(8),
+
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: (_isProcessing || !_hasPendingManualChanges)
+                  ? null
+                  : _applyManualEnhance,
+              child: const Text('Terapkan'),
+            ),
+          ),
+          const Gap(8),
+        ],
+
+        Center(
+          child: TextButton.icon(
+            onPressed: _isProcessing ? null : _resetToOriginal,
+            icon: const Icon(Icons.refresh, size: 16),
+            label: const Text('Reset ke Asli'),
+            style: TextButton.styleFrom(
+                foregroundColor: AppTheme.textSecondary),
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildPresetChip({
+    required _Preset preset,
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    final selected = _activePreset == preset;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: _isProcessing ? null : onTap,
+        child: Container(
+          width: 76,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppTheme.primary.withValues(alpha: 0.15)
+                : AppTheme.surfaceLight,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? AppTheme.primary : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size: 20,
+                  color:
+                      selected ? AppTheme.primary : AppTheme.textSecondary),
+              const Gap(4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected ? AppTheme.primary : AppTheme.textSecondary,
+                ),
+              ),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                    fontSize: 9, color: AppTheme.textSecondary),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
