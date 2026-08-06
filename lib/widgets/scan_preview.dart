@@ -86,14 +86,14 @@ class ScanPreview extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// EmptyState
+// ScanEmptyState
 // ─────────────────────────────────────────────
-class EmptyState extends StatelessWidget {
+class ScanEmptyState extends StatelessWidget {
   final bool isSearching;
   final VoidCallback onScanPressed;
   final bool scanEnabled;
 
-  const EmptyState({
+  const ScanEmptyState({
     super.key,
     required this.isSearching,
     required this.onScanPressed,
