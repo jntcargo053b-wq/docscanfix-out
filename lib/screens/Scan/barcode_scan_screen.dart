@@ -50,10 +50,10 @@ class _BarcodeScanScreenState extends State<BarcodeScanScreen> {
         actions: [
           IconButton(
             tooltip: 'Senter',
-            icon: ValueListenableBuilder<TorchState>(
-              valueListenable: _controller.torchState,
+            icon: ValueListenableBuilder<MobileScannerState>(
+              valueListenable: _controller,
               builder: (context, state, _) => Icon(
-                state == TorchState.on
+                state.torchState == TorchState.on
                     ? Icons.flash_on
                     : Icons.flash_off,
               ),
