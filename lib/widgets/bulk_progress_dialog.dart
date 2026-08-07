@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/bulk_share_service.dart';
 import '../theme/app_theme.dart';
