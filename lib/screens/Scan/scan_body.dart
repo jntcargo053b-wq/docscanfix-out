@@ -14,12 +14,14 @@ class ScanBody extends StatelessWidget {
     required this.onSave,
     required this.onAddMore,
     required this.onShare,
+    required this.onScanBarcode,
   });
 
   final ScanController controller;
   final VoidCallback onSave;
   final VoidCallback onAddMore;
   final VoidCallback onShare;
+  final Future<void> Function() onScanBarcode;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +30,11 @@ class ScanBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ScanTitleInput(controller: controller.titleController),
+          ScanTitleInput(
+            controller: controller.titleController,
+            onAutoName: controller.useAutoTitle,
+            onScanBarcode: onScanBarcode,
+          ),
           const Gap(20),
           ScanPageCarousel(
             imagePaths: controller.imagePaths,

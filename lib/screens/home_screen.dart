@@ -92,6 +92,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onSearchChanged(String value) {
+    // FIX: rebuild langsung supaya tombol clear (X) di suffixIcon
+    // muncul/hilang seiring ketikan — pencarian sesungguhnya tetap
+    // di-debounce lewat _searchDebounceTimer di bawah.
+    setState(() {});
     _searchDebounceTimer?.cancel();
     _searchDebounceTimer = Timer(_searchDelay, () {
       _searchQuery = value.trim();
@@ -461,7 +465,9 @@ class _HomeScreenState extends State<HomeScreen> {
           prefixIcon: const Icon(Icons.search, color: AppTheme.textSecondary),
           // Indikator kecil saat pencarian dilempar ke background isolate
           // (koleksi besar), supaya user tahu hasil masih diproses dan
-          // bukannya app diam/nge-hang.
+          // bukannya app diam/nge-hang. Kalau tidak sedang loading tapi ada
+          // teks, tampilkan tombol clear (X) — sebelumnya tidak ada sama
+          // sekali, jadi user harus hapus manual karakter demi karakter.
           suffixIcon: _isSearching
               ? const Padding(
                   padding: EdgeInsets.all(14),
@@ -474,7 +480,20 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 )
-              : null,
+              : (_searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.close,
+                          color: AppTheme.textSecondary, size: 20),
+                      tooltip: 'Hapus pencarian',
+                      onPressed: () {
+                        _searchController.clear();
+                        _searchDebounceTimer?.cancel();
+                        _searchQuery = '';
+                        _runSearch();
+                        setState(() {});
+                      },
+                    )
+                  : null),
           filled: true,
           fillColor: AppTheme.surface,
           border: OutlineInputBorder(
@@ -490,6 +509,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildDocumentList() {
     final docs = _displayedDocs;
     if (docs.isEmpty) {
+      // FIX: sebelumnya pesan "Belum ada dokumen / Scan dokumen pertama
+      // Anda" selalu ditampilkan tiap _displayedDocs kosong — termasuk saat
+      // itu kosong karena kata kunci pencarian tidak ketemu, padahal
+      // dokumennya ADA. Membingungkan, seolah semua dokumen hilang.
+      // Sekarang dibedakan berdasarkan apakah sedang ada pencarian aktif.
+      if (_searchQuery.isNotEmpty) {
+        return EmptyState(
+          icon: Icons.search_off_outlined,
+          title: 'Tidak ditemukan',
+          subtitle: 'Tidak ada dokumen yang cocok dengan "$_searchQuery"',
+        );
+      }
       return const EmptyState(
         icon: Icons.folder_open_outlined,
         title: 'Belum ada dokumen',

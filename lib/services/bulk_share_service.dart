@@ -130,10 +130,23 @@ class BulkShareService {
     final files = <XFile>[];
     int done = 0;
     for (final doc in validDocs) {
-      for (final p in doc.imagePaths) {
+      // FIX: sebelumnya XFile dibuat tanpa `name:`, jadi nama file yang
+      // dikirim ke share sheet ikut nama asli di disk (page_1.jpg,
+      // page_2.jpg, dst — penomoran mulai dari 1 lagi di tiap dokumen).
+      // Kalau lebih dari satu dokumen dipilih, nama file antar dokumen
+      // BENTROK (page_1.jpg dari dokumen A = page_1.jpg dari dokumen B),
+      // dan aplikasi tujuan (email/WA/dll) bisa menimpa atau membingungkan
+      // salah satunya. Sekarang tiap file diberi nama unik berbasis judul
+      // dokumen + nomor halaman.
+      for (int i = 0; i < doc.imagePaths.length; i++) {
+        final p = doc.imagePaths[i];
         _checkCancelled();
         if (await File(p).exists()) {
-          files.add(XFile(p, mimeType: 'image/jpeg'));
+          files.add(XFile(
+            p,
+            mimeType: 'image/jpeg',
+            name: '${_safeFileName(doc.title)}_hal${i + 1}.jpg',
+          ));
         }
         done++;
         onProgress?.call(BulkShareProgress(done, totalPages, doc.title));
@@ -149,6 +162,14 @@ class BulkShareService {
       subject: '${docs.length} dokumen',
       text: '${docs.length} dokumen (${files.length} halaman total)',
     );
+  }
+
+  /// Bersihkan judul dokumen supaya aman dipakai sebagai nama file
+  /// (buang karakter yang tidak valid di sebagian besar filesystem/app
+  /// tujuan share, dan cegah nama file kosong).
+  static String _safeFileName(String title) {
+    final cleaned = title.trim().replaceAll(RegExp(r'[^\w\s-]'), '_');
+    return cleaned.isEmpty ? 'Dokumen' : cleaned;
   }
 
   /// Bagikan dokumen terpilih sebagai PDF. Dokumen yang belum punya PDF akan

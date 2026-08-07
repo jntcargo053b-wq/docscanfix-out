@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../theme/app_theme.dart';
 import 'scan_controller.dart';
 import 'widgets/scan_loading_overlay.dart';
+import 'barcode_scan_screen.dart';
 import 'scan_body.dart';
 
 /// Entry-point widget untuk scan flow.
@@ -75,6 +76,17 @@ class _ScanScreenState extends State<ScanScreen> {
     // startScan tidak melakukan Navigator call — tidak perlu cek mounted setelah ini
   }
 
+  Future<void> _handleScanBarcode() async {
+    if (!mounted) return;
+    final result = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => const BarcodeScanScreen()),
+    );
+    if (result != null && result.isNotEmpty) {
+      _controller.useBarcodeTitle(result);
+    }
+  }
+
   // ─── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -130,6 +142,7 @@ class _ScanScreenState extends State<ScanScreen> {
       onSave: _handleSave,
       onAddMore: _handleAddMore,
       onShare: _handleShare,
+      onScanBarcode: _handleScanBarcode,
     );
   }
 }

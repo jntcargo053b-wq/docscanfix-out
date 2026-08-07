@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -39,7 +40,13 @@ class ScannerService {
         isGalleryImportAllowed: false,
       );
       if (paths == null || paths.isEmpty) return null;
-      return paths;
+      // FIX: cunning_document_scanner kadang mengembalikan halaman yang
+      // sama dua kali (path berbeda tapi isi file identik) saat capture
+      // beberapa halaman dalam satu sesi — sebelumnya tidak difilter,
+      // sehingga dokumen/PDF/share bisa berisi foto duplikat. Saring
+      // berdasarkan hash konten file, bukan cuma path, karena duplikat
+      // bisa muncul dengan nama file yang berbeda.
+      return await _dedupeByContent(paths);
     } on ScannerException {
       rethrow;
     } catch (e) {
@@ -49,6 +56,29 @@ class ScannerService {
       }
       throw ScannerException(ScannerError.scanFailed, cause: e);
     }
+  }
+
+  /// Buang halaman dengan isi file identik, pertahankan urutan kemunculan
+  /// pertama. Dipakai untuk menangkis bug plugin scanner yang kadang
+  /// mengembalikan halaman kembar.
+  Future<List<String>> _dedupeByContent(List<String> paths) async {
+    final seenHashes = <String>{};
+    final result = <String>[];
+    for (final path in paths) {
+      try {
+        final bytes = await File(path).readAsBytes();
+        final hash = md5.convert(bytes).toString();
+        if (seenHashes.add(hash)) {
+          result.add(path);
+        }
+      } catch (_) {
+        // Jika file tidak terbaca, biarkan lolos apa adanya — biar
+        // ditangani di tahap berikutnya (mis. saveImages sudah skip
+        // file yang tidak ada), daripada diam-diam menghilangkan halaman.
+        result.add(path);
+      }
+    }
+    return result;
   }
 
   /// Import dari galeri.

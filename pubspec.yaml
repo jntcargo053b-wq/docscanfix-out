@@ -15,7 +15,9 @@ dependencies:
 
   # Scanner
   cunning_document_scanner: ^1.4.0
+  crypto: ^3.0.7
   image_picker: ^1.2.1
+  mobile_scanner: ^7.0.0
 
   # OCR
   google_mlkit_text_recognition: ^0.13.0

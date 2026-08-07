@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -71,11 +72,17 @@ class ScanController extends ChangeNotifier {
       final images = await _scannerService.scanDocument(context);
 
       if (images == null || images.isEmpty) {
-        _setStatus(ScanStatus.idle);
+        _setStatus(_imagePaths.isEmpty ? ScanStatus.idle : ScanStatus.ready);
         return;
       }
 
-      _imagePaths = images;
+      // FIX: sebelumnya `_imagePaths = images` MENIMPA seluruh halaman yang
+      // sudah ada — akibatnya tombol "Tambah Halaman" bukannya menambah,
+      // malah membuang semua halaman sebelumnya. Sekarang halaman baru
+      // digabung ke halaman lama, sambil tetap disaring dari duplikat
+      // (jaga-jaga isi sama dengan halaman yang sudah ada di sesi ini).
+      final newImages = await _dedupeAgainstExisting(images);
+      _imagePaths = [..._imagePaths, ...newImages];
       _setStatus(ScanStatus.ready);
       _runOcr();
     } on ScannerException catch (e) {
@@ -85,6 +92,28 @@ class ScanController extends ChangeNotifier {
       _errorMessage = 'Scan gagal. Coba lagi atau restart aplikasi.';
       _setStatus(ScanStatus.error);
     }
+  }
+
+  /// Saring halaman baru yang isinya identik dengan halaman yang sudah
+  /// ada di [_imagePaths] (mis. hasil "Tambah Halaman" kebetulan
+  /// menangkap ulang halaman yang sama).
+  Future<List<String>> _dedupeAgainstExisting(List<String> newPaths) async {
+    final existingHashes = <String>{};
+    for (final p in _imagePaths) {
+      try {
+        existingHashes.add(md5.convert(await File(p).readAsBytes()).toString());
+      } catch (_) {}
+    }
+    final result = <String>[];
+    for (final p in newPaths) {
+      try {
+        final hash = md5.convert(await File(p).readAsBytes()).toString();
+        if (existingHashes.add(hash)) result.add(p);
+      } catch (_) {
+        result.add(p);
+      }
+    }
+    return result;
   }
 
   void removeImage(int index) {
@@ -200,6 +229,25 @@ class ScanController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Sumber penamaan dokumen: otomatis / manual / scan barcode ──────────
+
+  /// Isi ulang nama dokumen dengan judul otomatis berbasis waktu saat ini.
+  /// Dipakai saat user memilih opsi "Otomatis" di layar scan.
+  void useAutoTitle() {
+    titleController.text = _defaultTitle();
+  }
+
+  /// Isi nama dokumen dari hasil scan barcode/QR. [rawValue] sudah berupa
+  /// hasil decode mentah dari mobile_scanner — dibersihkan dulu dari
+  /// baris baru/whitespace berlebih sebelum dipakai sebagai judul, karena
+  /// beberapa barcode (mis. QR multi-baris) bisa mengandung newline yang
+  /// akan merusak tampilan field judul satu baris.
+  void useBarcodeTitle(String rawValue) {
+    final cleaned = rawValue.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (cleaned.isEmpty) return;
+    titleController.text = cleaned;
+  }
+
   // ─── Private Helpers ──────────────────────────────────────────────────────
 
   void _setStatus(ScanStatus s) {
@@ -284,8 +332,16 @@ class ScanController extends ChangeNotifier {
 
   static String _defaultTitle() {
     final now = DateTime.now();
+    // FIX: sebelumnya day/month/hour tidak di-padLeft (cuma minute yang
+    // di-pad), jadi hasilnya tidak konsisten, mis. "Scan 3-7-2026 9:05"
+    // bukan "Scan 03-07-2026 09:05". Judul default ini juga yang jadi
+    // basis nama file PDF (lihat PdfService.generatePdf), jadi
+    // ketidak-konsistenan ini ikut kebawa ke nama file.
+    final dd = now.day.toString().padLeft(2, '0');
+    final mo = now.month.toString().padLeft(2, '0');
+    final hh = now.hour.toString().padLeft(2, '0');
     final mm = now.minute.toString().padLeft(2, '0');
-    return 'Scan ${now.day}-${now.month}-${now.year} ${now.hour}:$mm';
+    return 'Scan $dd-$mo-${now.year} $hh:$mm';
   }
 
   @override

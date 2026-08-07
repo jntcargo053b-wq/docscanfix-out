@@ -211,14 +211,20 @@ class DocumentStorageService {
     String? thumbnailPath;
 
     for (int i = 0; i < tempPaths.length; i++) {
-      // FIX: skip path kosong/null-string sebelum membuat File object
+      // FIX: tolak lebih awal jika tidak ada gambar
       final rawPath = tempPaths[i].trim();
       if (rawPath.isEmpty) continue;
 
       final tempFile = File(rawPath);
       if (!await tempFile.exists()) continue;
 
-      final newPath = '${docDir.path}/page_${i + 1}.jpg';
+      // FIX: sebelumnya nama file pakai index ASLI dari tempPaths (`i`),
+      // jadi kalau ada gambar sumber yang di-skip (kosong/hilang/gagal
+      // copy), penomoran file tersimpan jadi bolong — misalnya cuma ada
+      // page_2.jpg & page_3.jpg tanpa page_1.jpg. Sekarang dinomori
+      // berurutan berdasarkan posisi di savedPaths (hasil yang benar-benar
+      // berhasil disimpan), jadi selalu page_1, page_2, ... tanpa celah.
+      final newPath = '${docDir.path}/page_${savedPaths.length + 1}.jpg';
       try {
         await tempFile.copy(newPath);
       } catch (e) {
@@ -228,7 +234,11 @@ class DocumentStorageService {
       }
       savedPaths.add(newPath);
 
-      if (i == 0) thumbnailPath = newPath;
+      // FIX: sebelumnya cek `i == 0`, jadi kalau justru gambar PERTAMA yang
+      // gagal disimpan (kosong/hilang/gagal copy), thumbnailPath tidak
+      // pernah ke-set meski ada halaman lain yang berhasil. Sekarang pakai
+      // halaman pertama yang BENAR-BENAR berhasil disimpan.
+      thumbnailPath ??= newPath;
     }
 
     // FIX: jika tidak ada satu pun file berhasil di-copy, lempar error
