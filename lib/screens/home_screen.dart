@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:share_plus/share_plus.dart';
 import 'dart:async';
-import 'dart:io';
 import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
+import '../services/document_search_service.dart';
 import '../services/scanner_service.dart';
-import '../services/pdf_service.dart';
+import '../services/bulk_share_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/document_card.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/bulk_progress_dialog.dart';
 import 'Scan/scan_screen.dart';
 import 'document_detail_screen.dart';
 
@@ -24,10 +24,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _storageService = DocumentStorageService();
-  final _pdfService = PdfService();
+  final _bulkShareService = BulkShareService();
   List<ScannedDocument> _documents = [];
-  List<ScannedDocument>? _cachedFilteredDocs;
+  List<ScannedDocument> _displayedDocs = [];
   bool _isScanning = false;
+  bool _isSearching = false;
   String _searchQuery = '';
   final _searchController = TextEditingController();
 
@@ -40,6 +41,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Debounce timer for search ──
   Timer? _searchDebounceTimer;
   static const Duration _searchDelay = Duration(milliseconds: 300);
+
+  // Token pencarian: setiap panggilan _runSearch dapat nomor baru. Karena
+  // pencarian sekarang async (bisa lewat isolate untuk koleksi besar), hasil
+  // dari query lama yang baru selesai belakangan harus dibuang supaya list
+  // tidak "flicker" balik ke hasil query sebelumnya.
+  int _searchGeneration = 0;
 
   @override
   void initState() {
@@ -56,36 +63,39 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadDocuments() async {
     final docs = await _storageService.loadDocuments();
-    if (mounted) {
-      setState(() {
-        _documents = docs;
-        _cachedFilteredDocs = null;
-      });
-    }
+    if (!mounted) return;
+    setState(() => _documents = docs);
+    await _runSearch();
   }
 
-  List<ScannedDocument> get _filteredDocs {
-    if (_cachedFilteredDocs != null) return _cachedFilteredDocs!;
-    if (_searchQuery.isEmpty) {
-      _cachedFilteredDocs = _documents;
-      return _documents;
+  /// Jalankan filter pencarian lewat [DocumentSearchService], yang otomatis
+  /// pindah ke background isolate untuk koleksi besar supaya keystroke tidak
+  /// nge-block UI thread. Dilindungi token generasi untuk cegah race
+  /// condition antar hasil pencarian yang tumpang tindih.
+  Future<void> _runSearch() async {
+    final gen = ++_searchGeneration;
+    final isLargeCollection =
+        _documents.length >= DocumentSearchService.isolateThreshold;
+
+    if (_searchQuery.isNotEmpty && isLargeCollection && mounted) {
+      setState(() => _isSearching = true);
     }
-    final query = _searchQuery.toLowerCase();
-    final filtered = _documents.where((doc) {
-      return doc.title.toLowerCase().contains(query) ||
-          (doc.extractedText?.toLowerCase().contains(query) ?? false);
-    }).toList();
-    _cachedFilteredDocs = filtered;
-    return filtered;
+
+    final result =
+        await DocumentSearchService.filter(_documents, _searchQuery);
+
+    if (!mounted || gen != _searchGeneration) return;
+    setState(() {
+      _displayedDocs = result;
+      _isSearching = false;
+    });
   }
 
   void _onSearchChanged(String value) {
     _searchDebounceTimer?.cancel();
     _searchDebounceTimer = Timer(_searchDelay, () {
-      setState(() {
-        _searchQuery = value.trim();
-        _cachedFilteredDocs = null;
-      });
+      _searchQuery = value.trim();
+      _runSearch();
     });
   }
 
@@ -119,77 +129,127 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ScannedDocument> get _selectedDocs =>
       _documents.where((d) => _selectedIds.contains(d.id)).toList();
 
+  /// Tampilkan konfirmasi jika estimasi ukuran/jumlah file melebihi batas
+  /// aman ([ShareLimits]), supaya user tahu prosesnya bisa berat/lama
+  /// sebelum PDF mulai digenerate atau share sheet dibuka.
+  /// Return true jika user memilih lanjut (atau tidak perlu konfirmasi).
+  Future<bool> _confirmIfOverLimit(BulkShareEstimate estimate) async {
+    if (!estimate.exceedsLimit) return true;
+    if (!mounted) return false;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Ukuran Kiriman Besar'),
+        content: Text(
+          '${estimate.itemCount} file, total ~${estimate.formattedSize}. '
+          'Beberapa aplikasi tujuan (WhatsApp, Gmail, dll) bisa menolak '
+          'kiriman sebesar ini, dan prosesnya mungkin butuh waktu lebih '
+          'lama. Lanjutkan?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Batal'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Lanjutkan'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
   Future<void> _shareSelectedAsImages() async {
     if (_isBulkSharing) return;
+    final docs = _selectedDocs;
+
     setState(() => _isBulkSharing = true);
+    final estimate = await _bulkShareService.estimateImages(docs);
+    setState(() => _isBulkSharing = false);
+    if (!await _confirmIfOverLimit(estimate)) return;
+
+    final progress =
+        ValueNotifier<BulkShareProgress>(BulkShareProgress(0, 0, ''));
+    setState(() => _isBulkSharing = true);
+    if (mounted) {
+      unawaited(BulkProgressDialog.show(
+        context,
+        title: 'Menyiapkan Gambar…',
+        progress: progress,
+        onCancel: _bulkShareService.cancel,
+      ));
+    }
+
     try {
-      final docs = _selectedDocs;
-      final files = <XFile>[];
-      for (final doc in docs) {
-        files.addAll(
-          doc.imagePaths
-              .where((p) => File(p).existsSync())
-              .map((p) => XFile(p, mimeType: 'image/jpeg')),
-        );
-      }
-
-      if (files.isEmpty) {
-        _showError('Tidak ada gambar yang tersedia dari dokumen terpilih');
-        return;
-      }
-
-      await Share.shareXFiles(
-        files,
-        subject: '${docs.length} dokumen',
-        text: '${docs.length} dokumen (${files.length} halaman total)',
+      await _bulkShareService.shareAsImages(
+        docs,
+        onProgress: (p) => progress.value = p,
       );
-      if (mounted) _cancelSelection();
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop(); // close progress dialog
+        _cancelSelection();
+      }
+    } on BulkShareCancelled {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
     } catch (e) {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
       _showError('Gagal berbagi gambar: $e');
     } finally {
+      progress.dispose();
       if (mounted) setState(() => _isBulkSharing = false);
     }
   }
 
   Future<void> _shareSelectedAsPdf() async {
     if (_isBulkSharing) return;
+    final docs = _selectedDocs;
+
     setState(() => _isBulkSharing = true);
+    final estimate = await _bulkShareService.estimatePdfs(docs);
+    setState(() => _isBulkSharing = false);
+    if (!await _confirmIfOverLimit(estimate)) return;
+
+    final progress =
+        ValueNotifier<BulkShareProgress>(BulkShareProgress(0, docs.length, ''));
+    setState(() => _isBulkSharing = true);
+    if (mounted) {
+      unawaited(BulkProgressDialog.show(
+        context,
+        title: 'Menyiapkan PDF…',
+        progress: progress,
+        onCancel: _bulkShareService.cancel,
+      ));
+    }
+
     try {
-      final docs = _selectedDocs;
-      final files = <XFile>[];
-
-      for (final doc in docs) {
-        var pdfPath = doc.pdfPath ?? '';
-        if (pdfPath.isEmpty || !File(pdfPath).existsSync()) {
-          pdfPath = await _pdfService.generatePdf(
-            title: doc.title,
-            imagePaths: doc.imagePaths,
-            extractedText: doc.extractedText,
-          );
-          final updated = doc.copyWith(pdfPath: pdfPath);
-          await _storageService.updateDocument(updated);
-        }
-        files.add(XFile(pdfPath, mimeType: 'application/pdf'));
-      }
-
-      if (files.isEmpty) {
-        _showError('Tidak ada PDF yang bisa dibagikan');
-        return;
-      }
-
-      _storageService.invalidateCache();
-      await Share.shareXFiles(
-        files,
-        subject: '${docs.length} dokumen',
-        text: '${docs.length} dokumen sebagai PDF',
+      await _bulkShareService.shareAsPdf(
+        docs,
+        onProgress: (p) => progress.value = p,
+        onDocumentUpdated: (updated) {
+          // FIX: sinkronkan _documents in-memory juga — sebelumnya cuma
+          // storage yang di-update, jadi doc.pdfPath di sini selalu balik
+          // null di share berikutnya dan PDF-nya digenerate ulang terus
+          // (dan file PDF lama sebelumnya jadi sampah numpuk di storage).
+          final idx = _documents.indexWhere((d) => d.id == updated.id);
+          if (idx != -1) _documents[idx] = updated;
+        },
       );
       if (mounted) {
-        setState(() => _cachedFilteredDocs = null);
+        Navigator.of(context, rootNavigator: true).pop(); // close progress dialog
+        await _runSearch();
         _cancelSelection();
       }
+    } on BulkShareCancelled {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
     } catch (e) {
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
       _showError('Gagal berbagi PDF: $e');
     } finally {
+      progress.dispose();
       if (mounted) setState(() => _isBulkSharing = false);
     }
   }
@@ -286,8 +346,9 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await _storageService.deleteDocuments(ids);
       _storageService.invalidateCache();
+      _documents.removeWhere((d) => ids.contains(d.id));
       if (mounted) {
-        setState(() => _cachedFilteredDocs = null);
+        await _runSearch();
         _cancelSelection();
       }
     } finally {
@@ -398,6 +459,22 @@ class _HomeScreenState extends State<HomeScreen> {
         decoration: InputDecoration(
           hintText: 'Cari dokumen...',
           prefixIcon: const Icon(Icons.search, color: AppTheme.textSecondary),
+          // Indikator kecil saat pencarian dilempar ke background isolate
+          // (koleksi besar), supaya user tahu hasil masih diproses dan
+          // bukannya app diam/nge-hang.
+          suffixIcon: _isSearching
+              ? const Padding(
+                  padding: EdgeInsets.all(14),
+                  child: SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: AppTheme.primary,
+                    ),
+                  ),
+                )
+              : null,
           filled: true,
           fillColor: AppTheme.surface,
           border: OutlineInputBorder(
@@ -411,7 +488,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildDocumentList() {
-    final docs = _filteredDocs;
+    final docs = _displayedDocs;
     if (docs.isEmpty) {
       return const EmptyState(
         icon: Icons.folder_open_outlined,
@@ -471,8 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
               await _storageService.deleteDocument(doc.id);
               _storageService.invalidateCache();
               if (mounted) {
-                setState(() => _cachedFilteredDocs = null);
-                _loadDocuments();
+                await _loadDocuments();
               }
             }
           },

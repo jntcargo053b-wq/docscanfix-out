@@ -17,6 +17,21 @@ class ScannedDocument {
     this.thumbnailPath,
   });
 
+  // ── Search index cache ──────────────────────────────────────────────────
+  // Objek ini immutable (semua field final), jadi gabungan title+extractedText
+  // dalam huruf kecil aman dihitung sekali lalu di-cache di sini. Ini
+  // menghindari toLowerCase() berulang atas extractedText (bisa ribuan
+  // karakter hasil OCR) di setiap keystroke pencarian saat koleksi besar.
+  String? _searchIndexCache;
+
+  String get _searchIndex => _searchIndexCache ??=
+      '${title.toLowerCase()} ${(extractedText ?? '').toLowerCase()}';
+
+  /// Cek apakah dokumen cocok dengan [lowerCaseQuery] (harus sudah lowercase
+  /// & trimmed oleh pemanggil, supaya tidak diulang per-dokumen).
+  bool matchesQuery(String lowerCaseQuery) =>
+      _searchIndex.contains(lowerCaseQuery);
+
   /// Empty document for safe defaults
   ScannedDocument.empty()
       : id = '',
