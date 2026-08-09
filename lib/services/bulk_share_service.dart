@@ -129,23 +129,29 @@ class BulkShareService {
 
     final files = <XFile>[];
     int done = 0;
+    // FIX: nama file sebelumnya cuma "<judul>_hal<N>.jpg". Judul dokumen
+    // default ("Scan DD-MM-YYYY HH:MM") cuma presisi menit, jadi kalau user
+    // scan 2+ dokumen dalam menit yang sama (sangat mungkin saat scan
+    // berturut-turut), judulnya identik → nama file antar dokumen BENTROK
+    // lagi persis seperti bug lama (page_1.jpg vs page_1.jpg), meski kali
+    // ini isi path aslinya beda per dokumen. Di beberapa platform share
+    // (terutama iOS) file-file yang dibagikan sekaligus disalin ke folder
+    // temp berdasarkan `name` sebelum share sheet dibuka — kalau namanya
+    // sama, salinan belakangan MENIMPA salinan sebelumnya di temp, jadi
+    // semua lampiran yang namanya bentrok berakhir jadi gambar yang sama.
+    // Fix: tambahkan nomor urut GLOBAL (lintas dokumen) di depan nama file,
+    // supaya nama selalu unik apa pun judul dokumennya.
+    int globalIndex = 0;
     for (final doc in validDocs) {
-      // FIX: sebelumnya XFile dibuat tanpa `name:`, jadi nama file yang
-      // dikirim ke share sheet ikut nama asli di disk (page_1.jpg,
-      // page_2.jpg, dst — penomoran mulai dari 1 lagi di tiap dokumen).
-      // Kalau lebih dari satu dokumen dipilih, nama file antar dokumen
-      // BENTROK (page_1.jpg dari dokumen A = page_1.jpg dari dokumen B),
-      // dan aplikasi tujuan (email/WA/dll) bisa menimpa atau membingungkan
-      // salah satunya. Sekarang tiap file diberi nama unik berbasis judul
-      // dokumen + nomor halaman.
       for (int i = 0; i < doc.imagePaths.length; i++) {
         final p = doc.imagePaths[i];
         _checkCancelled();
+        globalIndex++;
         if (await File(p).exists()) {
           files.add(XFile(
             p,
             mimeType: 'image/jpeg',
-            name: '${_safeFileName(doc.title)}_hal${i + 1}.jpg',
+            name: '${globalIndex}_${_safeFileName(doc.title)}_hal${i + 1}.jpg',
           ));
         }
         done++;
