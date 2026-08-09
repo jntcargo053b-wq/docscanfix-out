@@ -29,6 +29,17 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
   late String _originalPath;
   bool _isProcessing = false;
 
+  // LIFECYCLE CLEANUP: tiap operasi (rotate/flip/crop/preset/manual
+  // enhance) menulis file BARU ke temporary directory dan tidak pernah
+  // menghapus hasil langkah sebelumnya — jadi kalau user coba beberapa
+  // preset/slider sebelum akhirnya menekan "Simpan", semua versi
+  // perantara yang tidak jadi dipakai jadi sampah permanen di disk.
+  // Catat setiap path hasil generate di sini, lalu bersihkan semuanya
+  // di dispose() kecuali _originalPath (bukan milik layar ini) dan
+  // _resultPath (path yang benar-benar dikembalikan ke Scan Flow).
+  final Set<String> _generatedPaths = {};
+  String? _resultPath;
+
   _EditorTab _tab = _EditorTab.transform;
 
   // Crop state
@@ -72,6 +83,20 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     _cropEnd = const Offset(1, 1);
   }
 
+  @override
+  void dispose() {
+    // LIFECYCLE CLEANUP: hapus semua file perantara hasil edit di sesi ini
+    // yang TIDAK jadi dipakai — yaitu semua isi _generatedPaths kecuali
+    // _resultPath (kalau user menekan "Simpan"). _originalPath sengaja
+    // tidak pernah dihapus di sini: itu milik pemanggil (ScanController),
+    // yang bertanggung jawab atas lifecycle-nya sendiri.
+    for (final path in _generatedPaths) {
+      if (path == _resultPath) continue;
+      File(path).delete().catchError((Object _) => File(path));
+    }
+    super.dispose();
+  }
+
   // ── TRANSFORM ──────────────────────────────────────
 
   Future<void> _rotate(bool clockwise) async {
@@ -80,6 +105,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
       final result = clockwise
           ? await _enhanceService.rotate90(_currentPath)
           : await _enhanceService.rotate90CCW(_currentPath);
+      _generatedPaths.add(result);
       setState(() => _currentPath = result);
     } catch (e) {
       _showError('Gagal rotate: $e');
@@ -92,6 +118,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     setState(() => _isProcessing = true);
     try {
       final result = await _enhanceService.flipHorizontal(_currentPath);
+      _generatedPaths.add(result);
       setState(() => _currentPath = result);
     } catch (e) {
       _showError('Gagal flip: $e');
@@ -123,6 +150,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
         right:  left < right ? right : left,
         bottom: top < bottom ? bottom : top,
       );
+      _generatedPaths.add(result);
       setState(() {
         _currentPath = result;
         _isCropping = false;
@@ -189,6 +217,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
         case _Preset.original:
           return; // sudah ditangani di awal fungsi
       }
+      _generatedPaths.add(result);
       setState(() {
         _currentPath = result;
         _activePreset = preset;
@@ -222,6 +251,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
         sharpen: _sharpen,
         grayscale: _grayscale,
       );
+      _generatedPaths.add(result);
       setState(() {
         _currentPath = result;
         _activePreset = null; // custom — bukan salah satu preset lagi
@@ -276,7 +306,13 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
           TextButton(
             onPressed: _isProcessing
                 ? null
-                : () => Navigator.pop(context, _currentPath),
+                : () {
+                    // Tandai path final SEBELUM pop, supaya dispose() tahu
+                    // path mana yang harus DIPERTAHANKAN (bukan dihapus
+                    // sebagai file perantara yang tidak jadi dipakai).
+                    _resultPath = _currentPath;
+                    Navigator.pop(context, _currentPath);
+                  },
             child: const Text(
               'Simpan',
               style: TextStyle(

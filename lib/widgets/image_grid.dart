@@ -28,6 +28,17 @@ class ImageGrid extends StatelessWidget {
       ),
       itemBuilder: (context, index) {
         final path = imagePaths[index];
+        // FIX (perf #1): sebelumnya Image.file(File(path)) tanpa cacheWidth/
+        // cacheHeight — grid 3-kolom ini men-decode file JPEG resolusi
+        // kamera penuh (bisa 12–48 MP) per sel, padahal sel grid cuma
+        // selebar ~1/3 layar. cacheWidth membatasi decoder cuma memuat
+        // piksel sebesar yang benar-benar dirender (kali devicePixelRatio
+        // untuk tetap tajam di layar high-DPI), jauh lebih hemat memori
+        // & CPU terutama saat scroll dokumen berhalaman banyak.
+        final cellWidthPx =
+            (MediaQuery.of(context).size.width / 3 *
+                    MediaQuery.of(context).devicePixelRatio)
+                .round();
         return GestureDetector(
           onTap: () => onTap(index),
           child: ClipRRect(
@@ -43,6 +54,7 @@ class ImageGrid extends StatelessWidget {
                   Image.file(
                     File(path),
                     fit: BoxFit.cover,
+                    cacheWidth: cellWidthPx,
                   ),
                   Positioned(
                     left: 6,

@@ -10,11 +10,16 @@ class ScanPageCarousel extends StatelessWidget {
     required this.imagePaths,
     required this.onRemove,
     required this.onAddMore,
+    this.onEdit,
   });
 
   final List<String> imagePaths;
   final void Function(int index) onRemove;
   final VoidCallback onAddMore;
+  // Menghubungkan Image Editor ke Scan Flow: tap thumbnail halaman ke-[index]
+  // untuk membuka Image Editor. Opsional supaya carousel ini tetap bisa
+  // dipakai tanpa fitur edit.
+  final void Function(int index)? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +37,7 @@ class ScanPageCarousel extends StatelessWidget {
             imagePath: imagePaths[i],
             pageNumber: i + 1,
             onRemove: () => onRemove(i),
+            onTap: onEdit == null ? null : () => onEdit!(i),
           );
         },
       ),

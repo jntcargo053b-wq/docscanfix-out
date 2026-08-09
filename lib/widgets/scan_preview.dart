@@ -10,12 +10,17 @@ class ScanPreview extends StatelessWidget {
   final String imagePath;
   final int pageNumber;
   final VoidCallback onRemove;
+  // Menghubungkan Image Editor ke Scan Flow: tap thumbnail untuk edit
+  // halaman ini. Opsional supaya ScanPreview tetap bisa dipakai di tempat
+  // lain tanpa fitur edit (mis. konteks read-only).
+  final VoidCallback? onTap;
 
   const ScanPreview({
     super.key,
     required this.imagePath,
     required this.pageNumber,
     required this.onRemove,
+    this.onTap,
   });
 
   @override
@@ -23,26 +28,43 @@ class ScanPreview extends StatelessWidget {
     final file = File(imagePath);
     return Stack(
       children: [
-        Container(
-          width: 110,
-          height: 160,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppTheme.surfaceLight, width: 1.5),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(9),
-            child: file.existsSync()
-                ? Image.file(file, fit: BoxFit.cover)
-                : Container(
-                    color: AppTheme.surface,
-                    child: const Center(
-                      child: Icon(Icons.broken_image_outlined,
-                          color: AppTheme.textSecondary),
+        GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 110,
+            height: 160,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppTheme.surfaceLight, width: 1.5),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(9),
+              child: file.existsSync()
+                  ? Image.file(file, fit: BoxFit.cover)
+                  : Container(
+                      color: AppTheme.surface,
+                      child: const Center(
+                        child: Icon(Icons.broken_image_outlined,
+                            color: AppTheme.textSecondary),
+                      ),
                     ),
-                  ),
+            ),
           ),
         ),
+        // Indikator kecil supaya user tahu thumbnail bisa di-tap untuk edit.
+        if (onTap != null)
+          Positioned(
+            right: 4,
+            bottom: 6,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.edit, color: Colors.white, size: 12),
+            ),
+          ),
         // Page number badge
         Positioned(
           left: 6,

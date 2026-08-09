@@ -49,7 +49,7 @@ class DocumentCard extends StatelessWidget {
               _buildCheckbox(),
               const Gap(10),
             ],
-            _buildThumbnail(),
+            _buildThumbnail(context),
             const Gap(14),
             Expanded(child: _buildInfo(context)),
             if (!isSelectionMode) _buildMenu(context),
@@ -78,24 +78,53 @@ class DocumentCard extends StatelessWidget {
     );
   }
 
-  Widget _buildThumbnail() {
-    final firstImage = document.imagePaths.isNotEmpty
-        ? document.imagePaths.first
-        : null;
+  // FIX (perf #1): sebelumnya pakai FileImage(File(firstImage)) langsung ke
+  // DecorationImage tanpa resize sama sekali — jadi tiap row daftar dokumen
+  // men-decode file JPEG resolusi kamera penuh (bisa 12–48 MP) hanya untuk
+  // ditampilkan di kotak 60x60. Berat di CPU & memori tiap scroll, apalagi
+  // untuk daftar dokumen panjang.
+  //
+  // Sekarang: (1) utamakan document.thumbnailPath — file KECIL hasil
+  // ImageEnhanceService.generateThumbnail() (200x200) yang sekarang benar-
+  // benar dibuat saat dokumen disimpan (lihat DocumentStorageService.
+  // saveImages) — dengan fallback ke halaman pertama kalau thumbnail belum
+  // ada (dokumen lama sebelum fix ini) atau filenya sudah hilang; (2) tetap
+  // batasi ukuran decode lewat ResizeImage/cacheWidth sebagai jaring
+  // pengaman kedua, supaya walau suatu saat thumbnailPath kosong dan jatuh
+  // balik ke gambar full-res, decoder tidak pernah memuat piksel lebih
+  // banyak dari yang benar-benar ditampilkan.
+  Widget _buildThumbnail(BuildContext context) {
+    final thumb = document.thumbnailPath;
+    final fallback =
+        document.imagePaths.isNotEmpty ? document.imagePaths.first : null;
+    final imagePath =
+        (thumb != null && File(thumb).existsSync()) ? thumb : fallback;
+
+    ImageProvider? provider;
+    if (imagePath != null) {
+      // Target ukuran decode: 60dp x devicePixelRatio, dibulatkan ke atas.
+      // Ini cuma jaring pengaman kedua (thumbnail asli sudah 200x200), tapi
+      // tetap murah dan menghindari decode besar kalau fallback ke full-res.
+      final dpr = MediaQuery.of(context).devicePixelRatio;
+      final targetPx = (60 * dpr).round();
+      provider = ResizeImage(
+        FileImage(File(imagePath)),
+        width: targetPx,
+        height: targetPx,
+      );
+    }
+
     return Container(
       width: 60,
       height: 60,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         color: AppTheme.surfaceLight,
-        image: firstImage != null
-            ? DecorationImage(
-                image: FileImage(File(firstImage)),
-                fit: BoxFit.cover,
-              )
+        image: provider != null
+            ? DecorationImage(image: provider, fit: BoxFit.cover)
             : null,
       ),
-      child: firstImage == null
+      child: provider == null
           ? const Icon(Icons.image_outlined, color: AppTheme.textSecondary)
           : null,
     );

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -47,6 +48,18 @@ class ScanController extends ChangeNotifier {
   final Map<String, String> _preparedForOcrCache = {};
   final Map<String, String> _preparedForPdfCache = {};
 
+  // ── LIFECYCLE CLEANUP: semua file sementara yang dibuat sepanjang sesi
+  // scan ini (halaman mentah dari scanner, hasil edit dari Image Editor,
+  // versi prepared untuk OCR/PDF) — bukan cuma yang sedang dipakai di
+  // _imagePaths. File yang dibuang lewat removeImage()/replaceImage(),
+  // atau yang jadi halaman terduplikasi hasil dedupe, tetap tercatat di
+  // sini supaya ikut dibersihkan saat sesi berakhir (lihat dispose()).
+  // Aman dibersihkan kapan pun sesi berakhir (baik batal maupun sudah
+  // disimpan) karena saveDocument() men-COPY byte ke folder permanen
+  // (DocumentStorageService.saveImages), bukan memindahkan/mereferensi
+  // file temp ini.
+  final Set<String> _sessionTempFiles = {};
+
   late final TextEditingController titleController = TextEditingController(
     text: _defaultTitle(),
   );
@@ -68,6 +81,20 @@ class ScanController extends ChangeNotifier {
     _setStatus(ScanStatus.scanning);
     _errorMessage = null;
 
+    // FIX duplicate detection (tombol "Tambah Halaman"): hash halaman yang
+    // SUDAH ADA harus diambil SEBELUM sesi scan baru dipicu, bukan sesudah.
+    // cunning_document_scanner menyimpan hasil capture ke file temp yang
+    // penamaannya bisa dipakai ulang antar sesi (mis. path lama ikut
+    // ditimpa saat sesi baru berjalan) — kalau existingHashes dihitung
+    // SETELAH `scanDocument()` selesai, isi file di path lama itu bisa
+    // saja sudah keburu berubah jadi konten scan yang BARU, sehingga
+    // deteksi duplikat membandingkan halaman baru dengan dirinya sendiri
+    // (bukan dengan halaman lama yang sebenarnya) — hasilnya jadi tidak
+    // bisa diandalkan: duplikat asli lolos, atau halaman lama yang masih
+    // valid salah dianggap identik. Snapshot dulu di sini, sebelum apa
+    // pun di disk sempat berubah.
+    final existingHashes = await _hashAll(_imagePaths);
+
     try {
       final images = await _scannerService.scanDocument(context);
 
@@ -76,12 +103,17 @@ class ScanController extends ChangeNotifier {
         return;
       }
 
+      // Semua path mentah hasil sesi scan ini dicatat untuk cleanup lifecycle
+      // nanti (lihat dispose()) — termasuk yang bakal disaring sebagai
+      // duplikat di bawah, karena file fisiknya tetap ada di temp dir.
+      _sessionTempFiles.addAll(images);
+
       // FIX: sebelumnya `_imagePaths = images` MENIMPA seluruh halaman yang
       // sudah ada — akibatnya tombol "Tambah Halaman" bukannya menambah,
       // malah membuang semua halaman sebelumnya. Sekarang halaman baru
       // digabung ke halaman lama, sambil tetap disaring dari duplikat
-      // (jaga-jaga isi sama dengan halaman yang sudah ada di sesi ini).
-      final newImages = await _dedupeAgainstExisting(images);
+      // terhadap snapshot hash yang diambil sebelum scan dimulai.
+      final newImages = await _dedupeAgainstHashes(images, existingHashes);
       _imagePaths = [..._imagePaths, ...newImages];
       _setStatus(ScanStatus.ready);
       _runOcr();
@@ -94,26 +126,60 @@ class ScanController extends ChangeNotifier {
     }
   }
 
-  /// Saring halaman baru yang isinya identik dengan halaman yang sudah
-  /// ada di [_imagePaths] (mis. hasil "Tambah Halaman" kebetulan
-  /// menangkap ulang halaman yang sama).
-  Future<List<String>> _dedupeAgainstExisting(List<String> newPaths) async {
-    final existingHashes = <String>{};
-    for (final p in _imagePaths) {
+  /// Hash konten sekumpulan file (dipakai untuk snapshot state "existing"
+  /// sebelum operasi yang bisa mengubah isi file di path yang sama).
+  Future<Set<String>> _hashAll(List<String> paths) async {
+    final hashes = <String>{};
+    for (final p in paths) {
       try {
-        existingHashes.add(md5.convert(await File(p).readAsBytes()).toString());
+        hashes.add(md5.convert(await File(p).readAsBytes()).toString());
       } catch (_) {}
     }
+    return hashes;
+  }
+
+  /// Saring halaman baru yang isinya identik dengan [existingHashes] (state
+  /// sebelum sesi scan ini dimulai) ATAU dengan sesama halaman baru dalam
+  /// batch yang sama (mis. hasil "Tambah Halaman" kebetulan menangkap ulang
+  /// halaman yang sama beberapa kali dalam satu sesi).
+  Future<List<String>> _dedupeAgainstHashes(
+    List<String> newPaths,
+    Set<String> existingHashes,
+  ) async {
+    final seen = {...existingHashes};
     final result = <String>[];
     for (final p in newPaths) {
       try {
         final hash = md5.convert(await File(p).readAsBytes()).toString();
-        if (existingHashes.add(hash)) result.add(p);
+        if (seen.add(hash)) result.add(p);
       } catch (_) {
         result.add(p);
       }
     }
     return result;
+  }
+
+  /// Ganti halaman di [index] dengan hasil dari Image Editor ([newPath]).
+  /// Dipanggil setelah user menekan "Simpan" di ImageEditorScreen untuk
+  /// halaman terkait — menghubungkan Image Editor ke scan flow.
+  void replaceImage(int index, String newPath) {
+    if (index < 0 || index >= _imagePaths.length) return;
+    if (newPath == _imagePaths[index]) return;
+
+    final oldPath = _imagePaths[index];
+    final updated = List<String>.from(_imagePaths);
+    updated[index] = newPath;
+    _imagePaths = updated;
+
+    // Hasil edit adalah file temp baru → catat untuk cleanup lifecycle.
+    _sessionTempFiles.add(newPath);
+
+    // Konten halaman berubah: cache OCR/PDF untuk path lama sudah basi.
+    _preparedForOcrCache.remove(oldPath);
+    _preparedForPdfCache.remove(oldPath);
+
+    notifyListeners();
+    _runOcr();
   }
 
   void removeImage(int index) {
@@ -210,6 +276,7 @@ class ScanController extends ChangeNotifier {
         final prepared = await _enhanceService.prepareForPdf(originalPath);
         preparedPaths.add(prepared);
         _preparedForPdfCache[originalPath] = prepared;
+        _sessionTempFiles.add(prepared);
       }
     }
 
@@ -303,6 +370,7 @@ class ScanController extends ChangeNotifier {
           final prepared = await _enhanceService.prepareForOcr(originalPath);
           preparedPaths.add(prepared);
           _preparedForOcrCache[originalPath] = prepared;
+          _sessionTempFiles.add(prepared);
         }
       }
 
@@ -384,6 +452,22 @@ class ScanController extends ChangeNotifier {
   void dispose() {
     titleController.dispose();
     _clearPreparedCache();
+
+    // LIFECYCLE CLEANUP: sebelumnya tidak ada satu pun titik yang menghapus
+    // file sementara sesi ini dari disk — ScannerService.cleanupFiles()
+    // sudah ada tapi tidak pernah dipanggil dari mana pun, sehingga setiap
+    // sesi scan (halaman mentah dari kamera, hasil rotate/crop/enhance dari
+    // Image Editor, versi prepared untuk OCR & PDF) meninggalkan file yatim
+    // di temporary directory selamanya — baik saat user batal scan maupun
+    // setelah dokumen berhasil disimpan (karena saveDocument() sudah
+    // meng-copy byte-nya ke folder permanen, bukan memindahkan file ini).
+    // dispose() tidak bisa async, jadi cleanup dijalankan fire-and-forget;
+    // ScannerService.cleanupFiles() sendiri sudah aman menelan error per
+    // file (mis. sudah kehapus lebih dulu).
+    if (_sessionTempFiles.isNotEmpty) {
+      unawaited(_scannerService.cleanupFiles(_sessionTempFiles.toList()));
+    }
+
     super.dispose();
   }
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:path_provider/path_provider.dart';
 import '../models/scanned_document.dart';
+import 'image_enhance_service.dart';
 
 class DocumentStorageService {
   static final DocumentStorageService _instance =
@@ -96,7 +97,7 @@ class DocumentStorageService {
     }
   }
 
-  /// Add a new document
+  /// Add a new document (commit dokumen hasil scan).
   Future<void> addDocument(ScannedDocument document) async {
     // Load from cache if valid, otherwise from disk
     final docs = await loadDocuments();
@@ -105,8 +106,18 @@ class DocumentStorageService {
     _cachedDocuments = [document, ...docs];
     _cacheValid = true;
 
-    // Schedule write with debounce
-    await _deferredSaveDocuments();
+    // FIX: sebelumnya commit dokumen baru pakai _deferredSaveDocuments()
+    // (debounce 500ms) — cocok untuk update ringan yang sering terjadi
+    // berturut-turut, tapi BERBAHAYA untuk commit dokumen: gambar sudah
+    // ter-copy ke folder permanen (lihat saveImages di ScanController)
+    // sebelum addDocument() ini dipanggil, tapi kalau app di-kill atau
+    // dibackground tepat setelah "Simpan" ditekan — sebelum timer 500ms
+    // sempat jalan — metadata dokumen ini TIDAK PERNAH tertulis ke
+    // documents_meta.json. Hasilnya: file gambar nyangkut di disk tapi
+    // dokumennya tidak pernah muncul di daftar ("hilang" dari sisi user).
+    // Commit dokumen adalah operasi kritis satu-kali (bukan burst update
+    // berulang), jadi ditulis langsung/synchronous, bukan di-defer.
+    await _saveLocked();
   }
 
   /// Update an existing document
@@ -159,6 +170,16 @@ class DocumentStorageService {
       _deleteFileInBackground(doc.pdfPath!);
     }
 
+    // FIX (perf #1): thumbnailPath sekarang file terpisah hasil
+    // ImageEnhanceService.generateThumbnail() (lihat saveImages di bawah),
+    // bukan lagi salah satu dari imagePaths — jadi harus dihapus eksplisit
+    // di sini juga, kalau tidak akan jadi sampah menumpuk di folder
+    // DocScan/Thumbnails setiap dokumen dihapus.
+    if (doc.thumbnailPath != null &&
+        !doc.imagePaths.contains(doc.thumbnailPath)) {
+      _deleteFileInBackground(doc.thumbnailPath!);
+    }
+
     // Update cache and save immediately
     _cachedDocuments!.removeAt(docIndex);
     _cacheValid = true;
@@ -182,6 +203,12 @@ class DocumentStorageService {
     for (final doc in toDelete) {
       _deleteFilesInBackground(doc.imagePaths);
       if (doc.pdfPath != null) _deleteFileInBackground(doc.pdfPath!);
+      // FIX (perf #1): sama seperti deleteDocument — thumbnail terpisah
+      // harus ikut dibersihkan.
+      if (doc.thumbnailPath != null &&
+          !doc.imagePaths.contains(doc.thumbnailPath)) {
+        _deleteFileInBackground(doc.thumbnailPath!);
+      }
     }
 
     // Update cache
@@ -245,6 +272,26 @@ class DocumentStorageService {
     // agar caller tidak menyimpan dokumen kosong ke storage
     if (savedPaths.isEmpty) {
       throw Exception('Semua file gambar tidak ditemukan atau tidak dapat dibaca.');
+    }
+
+    // FIX (perf #1): sebelumnya thumbnailPath cuma menunjuk ke halaman
+    // pertama versi FULL-RES (page_1.jpg, bisa 12–48 MP hasil kamera —
+    // lihat komentar di ImageEnhanceService). DocumentCard men-decode file
+    // ini penuh setiap render row cuma untuk ditampilkan di kotak 60x60,
+    // yang berat di CPU/memori tiap scroll daftar dokumen.
+    // ImageEnhanceService.generateThumbnail() (resize 200x200, quality 75)
+    // sudah ada dari sesi sebelumnya tapi tidak pernah dipanggil — sekarang
+    // benar-benar dipakai di sini, supaya thumbnailPath menunjuk ke file
+    // KECIL yang memang didesain untuk thumbnail, bukan halaman asli.
+    // Kalau generate gagal (mis. file corrupt), fallback ke halaman pertama
+    // seperti perilaku lama — jangan sampai gagal generate thumbnail
+    // menggagalkan penyimpanan dokumen.
+    if (thumbnailPath != null) {
+      try {
+        thumbnailPath = await ImageEnhanceService().generateThumbnail(thumbnailPath);
+      } catch (_) {
+        // biarkan thumbnailPath tetap menunjuk ke halaman pertama full-res
+      }
     }
 
     return (imagePaths: savedPaths, thumbnailPath: thumbnailPath);
