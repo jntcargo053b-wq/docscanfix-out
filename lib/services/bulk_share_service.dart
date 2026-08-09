@@ -192,6 +192,14 @@ class BulkShareService {
     final files = <XFile>[];
     final total = docs.length;
 
+    // FIX (integrasi penamaan): sebelumnya XFile PDF dibuat tanpa `name:`,
+    // jadi nama file yang sampai ke aplikasi tujuan cuma ikut basename file
+    // fisiknya di disk (dari PdfService.generatePdf: "<judul>_<millis>.pdf").
+    // Itu sebetulnya sudah unik, tapi menampilkan timestamp mentah yang
+    // tidak ramah-pengguna ke penerima file. Sekarang dibangun nama bersih
+    // dari judul dokumen + nomor urut GLOBAL (pola sama seperti
+    // shareAsImages di atas) supaya nama tetap unik meski ada 2+ dokumen
+    // terpilih dengan judul identik (mis. user rename manual jadi sama).
     for (int i = 0; i < docs.length; i++) {
       _checkCancelled();
       final doc = docs[i];
@@ -209,7 +217,11 @@ class BulkShareService {
         onDocumentUpdated?.call(updated);
       }
 
-      files.add(XFile(pdfPath, mimeType: 'application/pdf'));
+      files.add(XFile(
+        pdfPath,
+        mimeType: 'application/pdf',
+        name: '${i + 1}_${_safeFileName(doc.title)}.pdf',
+      ));
       onProgress?.call(BulkShareProgress(i + 1, total, doc.title));
     }
 

@@ -36,10 +36,23 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     if (_isSharing || _isExportingPdf) return;
     setState(() => _isSharing = true);
     try {
-      final existingFiles = _doc.imagePaths
-          .where((p) => File(p).existsSync())
-          .map((p) => XFile(p, mimeType: 'image/jpeg'))
-          .toList();
+      // FIX (integrasi penamaan): sebelumnya XFile dibuat tanpa `name:`,
+      // jadi nama file yang sampai ke aplikasi tujuan cuma ikut basename
+      // aslinya di storage ("page_1.jpg", "page_2.jpg", dst — lihat
+      // DocumentStorageService.saveImages) alih-alih judul dokumen. Judul
+      // tidak kepakai sama sekali. Sekarang dibangun dari judul dokumen +
+      // nomor halaman, sama seperti pola di BulkShareService & ScanController.
+      final safeTitle = _safeFileName(_doc.title);
+      final imagePaths =
+          _doc.imagePaths.where((p) => File(p).existsSync()).toList();
+      final existingFiles = <XFile>[
+        for (int i = 0; i < imagePaths.length; i++)
+          XFile(
+            imagePaths[i],
+            mimeType: 'image/jpeg',
+            name: '${safeTitle}_hal${i + 1}.jpg',
+          ),
+      ];
 
       if (existingFiles.isEmpty) {
         _showError('Tidak ada gambar yang tersedia');
@@ -79,7 +92,13 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       }
 
       await Share.shareXFiles(
-        [XFile(pdfPath, mimeType: 'application/pdf')],
+        [
+          XFile(
+            pdfPath,
+            mimeType: 'application/pdf',
+            name: '${_safeFileName(_doc.title)}.pdf',
+          ),
+        ],
         subject: _doc.title,
         text: 'PDF: ${_doc.title}',
       );
@@ -88,6 +107,15 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     } finally {
       if (mounted) setState(() => _isExportingPdf = false);
     }
+  }
+
+  /// Bersihkan judul supaya aman dipakai sebagai nama file — sama seperti
+  /// BulkShareService._safeFileName & ScanController._safeFileName, dipakai
+  /// di sini juga supaya perilaku penamaan konsisten di semua jalur share
+  /// (layar Scan, detail dokumen, bulk share).
+  static String _safeFileName(String title) {
+    final cleaned = title.trim().replaceAll(RegExp(r'[^\w\s-]'), '_');
+    return cleaned.isEmpty ? 'Dokumen' : cleaned;
   }
 
   void _showError(String msg) {
