@@ -236,9 +236,39 @@ class ScanController extends ChangeNotifier {
     );
   }
 
+  /// FIX (integrasi penamaan): sebelumnya share dari layar Scan ini
+  /// mengirim _imagePaths mentah lewat XFile(p) TANPA `name:` sama sekali
+  /// — jadi apa pun sumber judul yang dipilih user (Otomatis / Manual /
+  /// Scan Barcode di ScanTitleInput) SAMA SEKALI tidak kepakai di sini;
+  /// nama file yang sampai ke aplikasi tujuan cuma ikut nama file temp
+  /// dari plugin scanner/galeri (mis. nama acak/generic), dan berpotensi
+  /// bentrok antar halaman/sesi persis seperti bug bulk-share sebelumnya.
+  /// Sekarang nama file dibangun dari judul yang sedang aktif di
+  /// titleController (apa pun sumbernya) + nomor halaman, sama seperti
+  /// pola yang dipakai di BulkShareService & DocumentDetailScreen.
   Future<void> shareImages() async {
     if (_imagePaths.isEmpty) return;
-    await Share.shareXFiles(_imagePaths.map((p) => XFile(p)).toList());
+    final rawTitle = titleController.text.trim();
+    final title = rawTitle.isEmpty ? _defaultTitle() : rawTitle;
+    final safeTitle = _safeFileName(title);
+    final files = <XFile>[
+      for (int i = 0; i < _imagePaths.length; i++)
+        XFile(
+          _imagePaths[i],
+          mimeType: 'image/jpeg',
+          name: '${safeTitle}_hal${i + 1}.jpg',
+        ),
+    ];
+    await Share.shareXFiles(files, subject: title, text: title);
+  }
+
+  /// Bersihkan judul supaya aman dipakai sebagai nama file — sama seperti
+  /// BulkShareService._safeFileName, dipakai di sini juga supaya perilaku
+  /// penamaan konsisten antara share dari layar Scan dan bulk share dari
+  /// daftar dokumen, apa pun sumber judulnya (otomatis/manual/barcode).
+  static String _safeFileName(String title) {
+    final cleaned = title.trim().replaceAll(RegExp(r'[^\w\s-]'), '_');
+    return cleaned.isEmpty ? 'Dokumen' : cleaned;
   }
 
   void clearError() {
@@ -339,10 +369,19 @@ class ScanController extends ChangeNotifier {
     }
   }
 
+  /// FIX lanjutan: presisi cuma sampai menit bikin 2+ dokumen yang
+  /// di-scan berturut-turut dalam menit yang sama dapat judul default
+  /// IDENTIK — ini akar salah satu bug share ganda (nama file antar
+  /// dokumen bentrok saat multi-share). Tambah detik supaya judul
+  /// default antar dokumen praktis selalu unik.
   static String _defaultTitle() {
     final now = DateTime.now();
+    final dd = now.day.toString().padLeft(2, '0');
+    final mo = now.month.toString().padLeft(2, '0');
+    final hh = now.hour.toString().padLeft(2, '0');
     final mm = now.minute.toString().padLeft(2, '0');
-    return 'Scan ${now.day}-${now.month}-${now.year} ${now.hour}:$mm';
+    final ss = now.second.toString().padLeft(2, '0');
+    return 'Scan $dd-$mo-${now.year} $hh:$mm:$ss';
   }
 
   @override
