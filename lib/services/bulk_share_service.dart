@@ -213,7 +213,13 @@ class BulkShareService {
           extractedText: doc.extractedText,
         );
         final updated = doc.copyWith(pdfPath: pdfPath);
-        await _storageService.updateDocument(updated);
+        // FIX (P1 — updateDocument() critical masih deferred): pdfPath ini
+        // adalah hasil PdfService.generatePdf() yang baru saja selesai
+        // (kerja mahal: decode+resize+encode tiap halaman). immediate:
+        // true supaya tidak hilang kalau app di-kill sebelum debounce
+        // 500ms sempat jalan — lihat komentar lengkap di
+        // DocumentStorageService.updateDocument().
+        await _storageService.updateDocument(updated, immediate: true);
         onDocumentUpdated?.call(updated);
       }
 
@@ -225,7 +231,7 @@ class BulkShareService {
       onProgress?.call(BulkShareProgress(i + 1, total, doc.title));
     }
 
-    _storageService.invalidateCache();
+    await _storageService.invalidateCache();
 
     if (files.isEmpty) {
       throw Exception('Tidak ada PDF yang bisa dibagikan');

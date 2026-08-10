@@ -105,12 +105,22 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
       final result = clockwise
           ? await _enhanceService.rotate90(_currentPath)
           : await _enhanceService.rotate90CCW(_currentPath);
+      // BUG (setState tanpa mounted): rotate90/rotate90CCW jalan di isolate
+      // terpisah (compute()) dan bisa makan waktu — kalau user tekan close
+      // (Navigator.pop) sebelum proses ini selesai, State sudah ke-dispose
+      // saat setState() ini dipanggil → "setState() called after dispose()"
+      // (runtime exception). Sama untuk _flip/_applyCrop/_applyPreset/
+      // _applyManualEnhance di bawah dan blok finally masing-masing.
+      // Catat ke _generatedPaths DULU (sebelum cek mounted) supaya file
+      // hasil generate tetap ikut ke-cleanup di dispose() meski widget
+      // sudah tidak mounted saat proses ini selesai.
       _generatedPaths.add(result);
+      if (!mounted) return;
       setState(() => _currentPath = result);
     } catch (e) {
       _showError('Gagal rotate: $e');
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -119,11 +129,12 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     try {
       final result = await _enhanceService.flipHorizontal(_currentPath);
       _generatedPaths.add(result);
+      if (!mounted) return;
       setState(() => _currentPath = result);
     } catch (e) {
       _showError('Gagal flip: $e');
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -150,7 +161,13 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
         right:  left < right ? right : left,
         bottom: top < bottom ? bottom : top,
       );
+      // BUG (Image Editor setState after dispose): sebelumnya setState di
+      // sini & di blok finally TIDAK dijaga mounted — beda dari _rotate()/
+      // _flip() yang sudah benar. Sama seperti keduanya, operasi ini jalan
+      // di isolate terpisah dan bisa makan waktu; kalau user tekan close
+      // sebelum selesai, State sudah ke-dispose saat setState() dipanggil.
       _generatedPaths.add(result);
+      if (!mounted) return;
       setState(() {
         _currentPath = result;
         _isCropping = false;
@@ -160,7 +177,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     } catch (e) {
       _showError('Gagal crop: $e');
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -217,7 +234,10 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
         case _Preset.original:
           return; // sudah ditangani di awal fungsi
       }
+      // BUG (Image Editor setState after dispose): sama seperti _applyCrop()
+      // — sebelumnya tidak ada guard mounted di sini/finally.
       _generatedPaths.add(result);
+      if (!mounted) return;
       setState(() {
         _currentPath = result;
         _activePreset = preset;
@@ -230,7 +250,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     } catch (e) {
       _showError('Gagal menerapkan preset: $e');
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -251,7 +271,10 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
         sharpen: _sharpen,
         grayscale: _grayscale,
       );
+      // BUG (Image Editor setState after dispose): sama seperti _applyCrop()
+      // & _applyPreset() — sebelumnya tidak ada guard mounted di sini/finally.
       _generatedPaths.add(result);
+      if (!mounted) return;
       setState(() {
         _currentPath = result;
         _activePreset = null; // custom — bukan salah satu preset lagi
@@ -264,7 +287,7 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
     } catch (e) {
       _showError('Gagal menerapkan enhancement: $e');
     } finally {
-      setState(() => _isProcessing = false);
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 

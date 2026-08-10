@@ -494,13 +494,37 @@ class ImageEnhanceService {
     return _saveTempNamed(image, 'compressed', quality: p.quality);
   }
 
+  /// FIX (P2 — Thumbnail square crop): sebelumnya copyResizeCropSquare()
+  /// crop TENGAH ke 200x200 — untuk dokumen (umumnya potret, rasio jauh
+  /// dari 1:1), ini membuang bagian atas (biasanya kop/judul surat) dan
+  /// bawah (biasanya tanda tangan/stempel) foto, cuma menyisakan strip
+  /// tengah yang seringkali kosong/kurang representatif untuk mengenali
+  /// dokumen mana yang mana di grid.
+  /// Fix: fit-within (downscale mempertahankan aspect ratio penuh, sisi
+  /// terpanjang = 200px) lalu taruh di tengah kanvas 200x200 putih —
+  /// letterbox, bukan crop. Ukuran file output tetap persegi 200x200
+  /// (kontrak dengan DocumentCard/ImageGrid tidak berubah), tapi seluruh
+  /// halaman tetap kelihatan, tidak ada konten yang hilang.
   Future<String> _processThumbnail(String imagePath) async {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
     if (image == null) return imagePath;
 
-    // Thumbnail 200x200 crop tengah
-    image = img.copyResizeCropSquare(image, size: 200);
+    const canvasSize = 200;
+    final fitted = image.width >= image.height
+        ? img.copyResize(image, width: canvasSize)
+        : img.copyResize(image, height: canvasSize);
+
+    final canvas = img.Image(
+      width: canvasSize,
+      height: canvasSize,
+      numChannels: 3,
+    )..clear(img.ColorRgb8(255, 255, 255));
+
+    final offsetX = ((canvasSize - fitted.width) / 2).round();
+    final offsetY = ((canvasSize - fitted.height) / 2).round();
+    img.compositeImage(canvas, fitted, dstX: offsetX, dstY: offsetY);
+    image = canvas;
 
     final dir = await getApplicationDocumentsDirectory();
     final thumbDir = Directory('${dir.path}/DocScan/Thumbnails');

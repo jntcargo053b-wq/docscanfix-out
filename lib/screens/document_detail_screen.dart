@@ -87,7 +87,17 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
           extractedText: _doc.extractedText,
         );
         final updated = _doc.copyWith(pdfPath: pdfPath);
-        await _storageService.updateDocument(updated);
+        // FIX (P1 — updateDocument() critical masih deferred): sama
+        // seperti BulkShareService.shareAsPdf() — pdfPath ini hasil
+        // generatePdf() yang baru selesai, immediate: true supaya tidak
+        // hilang kalau app di-kill sebelum debounce jalan.
+        await _storageService.updateDocument(updated, immediate: true);
+        // BUG (setState setelah await tanpa mounted): baris ini sebelumnya
+        // tidak dijaga mounted, beda dari setState di finally block yang
+        // sudah benar — kalau user keluar dari layar detail dokumen saat
+        // updateDocument() masih berjalan, setState ini bisa dipanggil
+        // setelah widget di-dispose dan melempar runtime exception.
+        if (!mounted) return;
         setState(() => _doc = updated);
       }
 

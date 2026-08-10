@@ -120,8 +120,29 @@ class DocumentStorageService {
     await _saveLocked();
   }
 
-  /// Update an existing document
-  Future<void> updateDocument(ScannedDocument document) async {
+  /// Update an existing document.
+  ///
+  /// FIX (P1 — updateDocument() critical masih deferred): sebelumnya SELALU
+  /// lewat _deferredSaveDocuments() (debounce 500ms) apa pun isi update-nya.
+  /// Cocok untuk perubahan ringan yang sering beruntun, tapi berbahaya untuk
+  /// update yang merepresentasikan hasil kerja MAHAL & tidak-gratis-diulang
+  /// (mis. pdfPath baru setelah PdfService.generatePdf() selesai generate —
+  /// lihat BulkShareService.shareAsPdf() & DocumentDetailScreen._exportAsPdf()).
+  /// Kalau app di-kill di jendela 500ms itu, update hilang dari
+  /// documents_meta.json — bukan data hilang permanen (dokumen intinya masih
+  /// ada), tapi kerja mahal itu (generate PDF, dsb.) akan diulang lagi dari
+  /// nol di percobaan berikutnya karena state pdfPath-nya tidak pernah
+  /// tercatat.
+  /// Fix: parameter [immediate] — saat true, tulis langsung/synchronous
+  /// (sama seperti addDocument()) alih-alih di-debounce. Caller yang
+  /// melakukan update kritis (hasil kerja mahal, atau titik akhir sebuah
+  /// alur seperti export PDF) wajib pakai immediate: true; update ringan/
+  /// beruntun (mis. upsertDocuments batch) tetap boleh pakai default
+  /// (debounced) untuk menghindari I/O berlebihan.
+  Future<void> updateDocument(
+    ScannedDocument document, {
+    bool immediate = false,
+  }) async {
     final docs = await loadDocuments();
     final idx = docs.indexWhere((d) => d.id == document.id);
     if (idx == -1) return;
@@ -130,8 +151,11 @@ class DocumentStorageService {
     _cachedDocuments![idx] = document;
     _cacheValid = true;
 
-    // Schedule write with debounce
-    await _deferredSaveDocuments();
+    if (immediate) {
+      await _saveLocked();
+    } else {
+      await _deferredSaveDocuments();
+    }
   }
 
   /// Add or update batch of documents
@@ -297,15 +321,79 @@ class DocumentStorageService {
     return (imagePaths: savedPaths, thumbnailPath: thumbnailPath);
   }
 
+  /// Buang folder permanen milik [documentId] yang SUDAH di-copy oleh
+  /// [saveImages] tapi GAGAL di-commit ke daftar dokumen (addDocument()
+  /// tidak pernah/tidak boleh dipanggil untuk id ini).
+  ///
+  /// FIX (P0 — Partial Gallery save → orphan document files): sebelumnya
+  /// ScanController.saveDocument() memanggil saveImages() (copy byte ke
+  /// folder permanen Documents/{id}/, lihat di atas) SEBELUM loop
+  /// SaverGallery.saveFile(). Kalau loop itu gagal di tengah jalan (mis.
+  /// storage penuh, permission dicabut saat runtime), controller langsung
+  /// masuk catch dan return false — addDocument() tidak pernah tercapai,
+  /// tapi folder Documents/{id}/ (dan thumbnail terpisah di
+  /// DocScan/Thumbnails/ hasil generateThumbnail()) sudah telanjur ada di
+  /// disk, tidak tercatat di documents_meta.json manapun, dan tidak akan
+  /// pernah dibersihkan oleh alur cleanup manapun (beda dari file temp
+  /// sesi yang ditangani ScannerService.cleanupFiles()) — jadi sampah
+  /// permanen yang menumpuk tiap kali user coba simpan & gagal di tengah.
+  /// Dipanggil oleh caller (ScanController.saveDocument()) di catch block
+  /// SEBELUM addDocument() berhasil dipanggil, supaya kegagalan partial
+  /// tidak meninggalkan jejak di disk sama sekali — state balik seperti
+  /// document ini tidak pernah dicoba disimpan.
+  Future<void> discardUnsavedDocument(
+    String documentId, {
+    String? thumbnailPath,
+  }) async {
+    try {
+      final dir = await _docsDir;
+      final docDir = Directory('${dir.path}/$documentId');
+      if (await docDir.exists()) {
+        await docDir.delete(recursive: true);
+      }
+    } catch (_) {
+      // Terbaik-upaya — kalau gagal hapus, tidak ada yang bisa dilakukan
+      // lebih lanjut di sini; tidak boleh melempar dan menutupi error asli
+      // yang memicu rollback ini.
+    }
+
+    // Thumbnail generateThumbnail() disimpan TERPISAH di
+    // DocScan/Thumbnails/, bukan di dalam Documents/{id}/ — jadi tidak ikut
+    // terhapus oleh docDir.delete(recursive:true) di atas dan harus
+    // dibersihkan eksplisit.
+    if (thumbnailPath != null) {
+      _deleteFileInBackground(thumbnailPath);
+    }
+  }
+
   /// Generate unique document ID
   String generateId() {
     return 'doc_${DateTime.now().millisecondsSinceEpoch}';
   }
 
-  /// Clear cache (useful when external changes might occur)
-  void invalidateCache() {
+  /// Clear cache (useful when external changes might occur).
+  ///
+  /// BUG (updateDocument() + invalidateCache() bisa kehilangan pdfPath):
+  /// updateDocument() menulis lewat _deferredSaveDocuments() (debounce
+  /// 500ms), TIDAK langsung. Kalau invalidateCache() dipanggil sebelum
+  /// timer itu sempat jalan — persis skenario BulkShareService.shareAsPdf()
+  /// yang updateDocument() beberapa dokumen di dalam loop lalu langsung
+  /// invalidateCache() begitu loop selesai — _writeTimer?.cancel() di sini
+  /// MEMBATALKAN tulisan yang masih pending. Update pdfPath yang baru saja
+  /// di-generate hilang begitu saja, tidak pernah tertulis ke
+  /// documents_meta.json. Ditambah _cacheValid=false, loadDocuments()
+  /// berikutnya baca ulang dari disk yang masih basi, jadi update di
+  /// memory pun ikut hilang — dokumen kelihatan seperti belum pernah
+  /// di-generate PDF-nya padahal filenya sudah ada di disk (jadi sampah
+  /// tak tercatat, dan PDF akan digenerate ulang di percobaan berikutnya).
+  /// Fix: kalau ada write yang masih pending, flush dulu (tulis langsung)
+  /// sebelum invalidate — bukan dibuang begitu saja.
+  Future<void> invalidateCache() async {
+    if (_writeTimer?.isActive ?? false) {
+      _writeTimer!.cancel();
+      await _saveLocked();
+    }
     _cacheValid = false;
-    _writeTimer?.cancel();
   }
 
   // ── Helper methods for background file deletion ──

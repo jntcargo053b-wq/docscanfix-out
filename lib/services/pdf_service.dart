@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
@@ -16,12 +18,50 @@ class PdfService {
   ///
   /// Tidak ada merge — semua halaman masuk ke satu [pw.Document] lewat
   /// [addPage] biasa, sehingga tidak bergantung pada API internal package pdf.
-  /// Peak RAM ≈ ukuran satu gambar + ukuran PDF yang sedang dibangun.
+  ///
+  /// BUG (PDF raw image menahan RAM besar): komentar di atas ("peak RAM ≈
+  /// ukuran satu gambar") SALAH — pw.Document.addPage() menyimpan closure
+  /// `build` untuk tiap halaman, dan closure itu MENAHAN referensi ke
+  /// pw.MemoryImage (berikut byte gambar yang sudah di-decode) sampai
+  /// pdf.save() benar-benar dipanggil di akhir, setelah SEMUA halaman
+  /// selesai ditambahkan. Jadi imageBytes TIDAK keluar scope secara efektif
+  /// — GC tidak bisa membebaskannya sampai save(). Untuk dokumen banyak
+  /// halaman dari foto kamera resolusi asli (bisa 12+ MP / puluhan MB
+  /// ter-decode per halaman), total RAM yang tertahan adalah SEMUA halaman
+  /// sekaligus, bukan satu — berisiko OOM di HP kelas menengah-bawah.
+  /// Sebelumnya cuma ScanController.exportPdf() yang menghindari ini
+  /// (lewat ImageEnhanceService.prepareForPdf() sebagai pre-step manual);
+  /// BulkShareService.shareAsPdf() & DocumentDetailScreen._exportAsPdf()
+  /// memanggil generatePdf() LANGSUNG dengan imagePaths resolusi asli,
+  /// tanpa downsize sama sekali.
+  /// Fix: downsize + re-encode tiap gambar di dalam generatePdf() sendiri
+  /// (max 1920px sisi terpanjang, sama seperti prepareForPdf), supaya
+  /// SEMUA caller — bukan cuma yang sudah tahu untuk pre-process — dapat
+  /// batas RAM per halaman yang wajar. Ini tidak menghilangkan penahanan
+  /// oleh closure (itu keterbatasan struktural package pdf), tapi
+  /// mengecilkan ukuran yang tertahan secara drastis.
+  /// FIX (P1 — PDF preprocessing berpotensi dua kali): [skipDownsize] baru.
+  /// ScanController.exportPdf() SUDAH menyiapkan imagePaths lewat
+  /// ImageEnhanceService.prepareForPdf() (downsize 1920px + encode quality
+  /// 85, dijalankan di isolate terpisah) SEBELUM manggil generatePdf() ini
+  /// — tapi _addImagePage() di bawah tetap decodeImage() ULANG tiap file
+  /// untuk cek apakah perlu di-resize (meski akhirnya skip resize karena
+  /// sudah ≤1920px). decodeImage() itu sendiri tidak murah (baca+decode
+  /// JPEG penuh) walau hasilnya dibuang — jadi ScanController.exportPdf()
+  /// bayar biaya decode dua kali (sekali di prepareForPdf's isolate, sekali
+  /// lagi di sini) untuk gambar yang sudah pasti tidak perlu diproses ulang.
+  /// Caller yang SUDAH pre-process (skipDownsize: true) lewati decode+cek
+  /// ukuran sama sekali, pakai rawBytes apa adanya. Caller yang BELUM
+  /// pre-process (BulkShareService.shareAsPdf(), DocumentDetailScreen.
+  /// _exportAsPdf() — keduanya generate dari imagePaths resolusi kamera
+  /// asli) tetap dapat safety-net downsize seperti sebelumnya (default
+  /// false, tidak berubah untuk mereka).
   Future<String> generatePdf({
     required String title,
     required List<String> imagePaths,
     String? extractedText,
     bool includeTextLayer = false,
+    bool skipDownsize = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
@@ -33,7 +73,7 @@ class PdfService {
       if (!await file.exists()) continue;
 
       // Baca → buat page → biarkan imageBytes keluar scope agar GC bisa bebaskan
-      await _addImagePage(pdf, path, pageFormat);
+      await _addImagePage(pdf, path, pageFormat, skipDownsize: skipDownsize);
     }
 
     if (includeTextLayer && (extractedText?.isNotEmpty ?? false)) {
@@ -65,15 +105,32 @@ class PdfService {
     return outFile.path;
   }
 
-  /// Baca satu gambar, tambahkan sebagai [pw.Page], lalu kembalikan.
-  /// Dipisah ke method sendiri agar [imageBytes] keluar scope setelah return
-  /// dan GC dapat membebaskan memori sebelum iterasi berikutnya.
+  /// Baca satu gambar, downsize kalau perlu (max 1920px sisi terpanjang,
+  /// cukup untuk cetak/tampil di PDF ukuran A4 — lihat catatan RAM di
+  /// generatePdf()), tambahkan sebagai [pw.Page].
   Future<void> _addImagePage(
     pw.Document pdf,
     String imagePath,
-    PdfPageFormat pageFormat,
-  ) async {
-    final imageBytes = await File(imagePath).readAsBytes();
+    PdfPageFormat pageFormat, {
+    bool skipDownsize = false,
+  }) async {
+    final rawBytes = await File(imagePath).readAsBytes();
+    Uint8List imageBytes = rawBytes;
+
+    if (!skipDownsize) {
+      final decoded = img.decodeImage(rawBytes);
+      if (decoded != null &&
+          (decoded.width > 1920 || decoded.height > 1920)) {
+        final resized = img.copyResize(
+          decoded,
+          width: decoded.width > decoded.height ? 1920 : -1,
+          height: decoded.height >= decoded.width ? 1920 : -1,
+          interpolation: img.Interpolation.linear,
+        );
+        imageBytes = Uint8List.fromList(img.encodeJpg(resized, quality: 85));
+      }
+    }
+
     final image = pw.MemoryImage(imageBytes);
     pdf.addPage(
       pw.Page(
@@ -85,7 +142,8 @@ class PdfService {
         ),
       ),
     );
-    // imageBytes keluar scope di sini
+    // imageBytes keluar scope di sini (peak RAM tetap tertahan lewat
+    // closure di atas sampai pdf.save(), tapi ukurannya sudah dibatasi)
   }
 
   /// Share PDF

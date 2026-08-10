@@ -84,16 +84,27 @@ class _ScanTitleInputState extends State<ScanTitleInput> {
           ],
         ),
         const Gap(10),
+        // BUG (review UI: huruf tidak keliatan): fillColor di-hardcode putih,
+        // sedangkan warna teks input & label mengikuti AppTheme.darkTheme
+        // (textPrimary/textSecondary, hampir putih) — teks hampir putih di
+        // atas latar putih nyaris tidak terbaca. Field ini juga yang paling
+        // sering dilihat user (nama dokumen dari Otomatis/Manual/Scan
+        // Barcode), jadi dampaknya paling terasa. Diseragamkan ke
+        // AppTheme.surfaceLight, konsisten dengan search bar di
+        // home_screen.dart yang sudah pakai warna tema (bukan hardcode).
         TextField(
           controller: widget.controller,
           focusNode: _focusNode,
           textInputAction: TextInputAction.done,
+          style: const TextStyle(color: AppTheme.textPrimary),
           decoration: InputDecoration(
             labelText: 'Nama Dokumen',
-            prefixIcon: const Icon(Icons.drive_file_rename_outline, size: 20),
+            labelStyle: const TextStyle(color: AppTheme.textSecondary),
+            prefixIcon: const Icon(Icons.drive_file_rename_outline,
+                size: 20, color: AppTheme.textSecondary),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: AppTheme.surfaceLight,
           ),
         ),
       ],

@@ -39,7 +39,27 @@ class _ScanScreenState extends State<ScanScreen> {
     await _controller.startScan(context);
 
     if (!mounted) return;
-    if (!_controller.hasImages) Navigator.pop(context);
+    if (!_controller.hasImages) {
+      // BUG: sebelumnya langsung Navigator.pop(context) begitu hasImages
+      // false — kalau startScan() gagal karena error (izin kamera, kamera
+      // dipakai app lain, dll, lihat catch di ScanController.startScan()),
+      // _errorMessage sudah terisi tapi layar keburu ditutup SEBELUM pesan
+      // errornya sempat ditampilkan ke user sama sekali. User cuma lihat
+      // layar Scan kebuka lalu langsung ketutup lagi tanpa penjelasan.
+      // Fix: kalau ada errorMessage, tampilkan dulu lewat SnackBar dan
+      // JANGAN auto-pop — biarkan user baca pesannya, baru tutup manual
+      // lewat tombol X. Auto-pop cuma untuk kasus user membatalkan sendiri
+      // (images null, tanpa error).
+      final error = _controller.errorMessage;
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+        _controller.clearError();
+        return;
+      }
+      Navigator.pop(context);
+    }
   }
 
   Future<void> _handleSave() async {

@@ -173,6 +173,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _isBulkSharing = true);
     final estimate = await _bulkShareService.estimateImages(docs);
+    // BUG (setState setelah await tanpa mounted): dua baris setState di
+    // fungsi ini sebelumnya tidak dijaga mounted, beda dari setState lain
+    // di bawahnya yang sudah benar — kalau user menutup/keluar dari layar
+    // ini saat estimateImages() masih berjalan, setState ini bisa
+    // dipanggil setelah widget di-dispose dan melempar
+    // "setState() called after dispose()" (runtime exception).
+    if (!mounted) return;
     setState(() => _isBulkSharing = false);
     if (!await _confirmIfOverLimit(estimate)) return;
 
@@ -214,6 +221,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() => _isBulkSharing = true);
     final estimate = await _bulkShareService.estimatePdfs(docs);
+    // BUG (setState setelah await tanpa mounted): sama seperti di
+    // _shareSelectedAsImages() — setState ini tidak dijaga mounted
+    // sebelumnya, berisiko "setState() called after dispose()" kalau
+    // user keluar dari layar saat estimatePdfs() masih berjalan.
+    if (!mounted) return;
     setState(() => _isBulkSharing = false);
     if (!await _confirmIfOverLimit(estimate)) return;
 
@@ -349,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _isBulkDeleting = true);
     try {
       await _storageService.deleteDocuments(ids);
-      _storageService.invalidateCache();
+      await _storageService.invalidateCache();
       _documents.removeWhere((d) => ids.contains(d.id));
       if (mounted) {
         await _runSearch();
@@ -577,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
             if (confirm == true) {
               await _storageService.deleteDocument(doc.id);
-              _storageService.invalidateCache();
+              await _storageService.invalidateCache();
               if (mounted) {
                 await _loadDocuments();
               }
