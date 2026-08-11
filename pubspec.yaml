@@ -14,7 +14,7 @@ dependencies:
   cupertino_icons: ^1.0.8
 
   # Scanner
-  cunning_document_scanner: ^1.4.0
+  cunning_document_scanner: ^2.2.0
   crypto: ^3.0.7
   image_picker: ^1.2.1
   mobile_scanner: ^7.0.0
