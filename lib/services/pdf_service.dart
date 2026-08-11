@@ -68,12 +68,42 @@ class PdfService {
 
     final pdf = pw.Document(title: title, author: 'DocScan App');
 
+    // FIX (P1 — PDF multi-halaman masih berisiko OOM): komentar di
+    // _addImagePage() sudah benar mendiagnosis bahwa downsize 1920px/q85
+    // TIDAK menghilangkan penahanan RAM oleh closure pw.Document — cuma
+    // mengecilkan UKURAN yang tertahan per halaman. Tapi ukuran yang
+    // tertahan itu tetap dikali JUMLAH HALAMAN (retensi total tumbuh
+    // linear tak terbatas terhadap panjang dokumen), karena pw.Document
+    // menahan referensi ke pw.MemoryImage tiap halaman lewat closure
+    // `build` sampai pdf.save() dipanggil di akhir — itu keterbatasan
+    // struktural package pdf yang tidak bisa diakali tanpa mengganti
+    // library. Untuk dokumen 30-50+ halaman dari kamera resolusi tinggi,
+    // bahkan versi terkompres tiap halaman (~200-800KB) bisa terakumulasi
+    // ke puluhan MB yang ditahan BERSAMAAN, berisiko OOM di HP RAM
+    // rendah — persis skenario yang disebut di judul bug ini.
+    // Fix: turunkan target ukuran per halaman (dimensi maks + kualitas
+    // JPEG) secara BERTAHAP seiring bertambahnya jumlah halaman, supaya
+    // total RAM yang tertahan mendekati anggaran yang kurang lebih tetap,
+    // bukan tumbuh linear tanpa batas. Cuma berlaku saat skipDownsize
+    // false (skipDownsize: true dipakai ScanController.exportPdf() yang
+    // SUDAH pre-process lewat ImageEnhanceService.prepareForPdf() di
+    // isolate terpisah — caller itu sendiri yang menentukan ukurannya,
+    // bukan tanggung jawab generatePdf() untuk mengubahnya lagi di sini).
+    final tier = skipDownsize ? null : _pageBudgetTier(imagePaths.length);
+
     for (final path in imagePaths) {
       final file = File(path);
       if (!await file.exists()) continue;
 
       // Baca → buat page → biarkan imageBytes keluar scope agar GC bisa bebaskan
-      await _addImagePage(pdf, path, pageFormat, skipDownsize: skipDownsize);
+      await _addImagePage(
+        pdf,
+        path,
+        pageFormat,
+        skipDownsize: skipDownsize,
+        maxDimension: tier?.maxDimension ?? 1920,
+        quality: tier?.quality ?? 85,
+      );
     }
 
     if (includeTextLayer && (extractedText?.isNotEmpty ?? false)) {
@@ -105,14 +135,29 @@ class PdfService {
     return outFile.path;
   }
 
-  /// Baca satu gambar, downsize kalau perlu (max 1920px sisi terpanjang,
-  /// cukup untuk cetak/tampil di PDF ukuran A4 — lihat catatan RAM di
-  /// generatePdf()), tambahkan sebagai [pw.Page].
+  /// Anggaran ukuran per halaman berdasarkan jumlah total halaman —
+  /// makin banyak halaman, makin kecil target tiap halaman, supaya total
+  /// RAM yang tertahan closure pw.Document (lihat komentar generatePdf())
+  /// tidak tumbuh tanpa batas. Nilai dipilih supaya dokumen pendek tetap
+  /// dapat kualitas setinggi sebelumnya (1920px/q85), sementara dokumen
+  /// sangat panjang dijaga tetap dalam anggaran RAM yang wajar untuk HP
+  /// kelas menengah-bawah.
+  ({int maxDimension, int quality}) _pageBudgetTier(int pageCount) {
+    if (pageCount > 25) return (maxDimension: 1280, quality: 70);
+    if (pageCount > 10) return (maxDimension: 1600, quality: 78);
+    return (maxDimension: 1920, quality: 85);
+  }
+
+  /// Baca satu gambar, downsize kalau perlu ke [maxDimension] sisi
+  /// terpanjang (cukup untuk cetak/tampil di PDF ukuran A4 — lihat
+  /// catatan RAM di generatePdf()), tambahkan sebagai [pw.Page].
   Future<void> _addImagePage(
     pw.Document pdf,
     String imagePath,
     PdfPageFormat pageFormat, {
     bool skipDownsize = false,
+    int maxDimension = 1920,
+    int quality = 85,
   }) async {
     final rawBytes = await File(imagePath).readAsBytes();
     Uint8List imageBytes = rawBytes;
@@ -120,14 +165,15 @@ class PdfService {
     if (!skipDownsize) {
       final decoded = img.decodeImage(rawBytes);
       if (decoded != null &&
-          (decoded.width > 1920 || decoded.height > 1920)) {
+          (decoded.width > maxDimension || decoded.height > maxDimension)) {
         final resized = img.copyResize(
           decoded,
-          width: decoded.width > decoded.height ? 1920 : -1,
-          height: decoded.height >= decoded.width ? 1920 : -1,
+          width: decoded.width > decoded.height ? maxDimension : -1,
+          height: decoded.height >= decoded.width ? maxDimension : -1,
           interpolation: img.Interpolation.linear,
         );
-        imageBytes = Uint8List.fromList(img.encodeJpg(resized, quality: 85));
+        imageBytes =
+            Uint8List.fromList(img.encodeJpg(resized, quality: quality));
       }
     }
 

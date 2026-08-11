@@ -159,11 +159,41 @@ class ImageEnhanceService {
       compute(_cropIsolate, _CropParams(imagePath, left, top, right, bottom));
 
   // ── INTERNAL (dipanggil dari isolate) ──
+  //
+  // FIX (P1 — Image Editor berpotensi menghapus file asli): tujuh fungsi di
+  // bawah (_processRotate, _processFlipHorizontal, _processCrop,
+  // _processAutoEnhance, _processManualEnhance, _processCompress,
+  // _processThumbnail) sebelumnya `return imagePath;` (mengembalikan PATH
+  // INPUT apa adanya) kalau img.decodeImage() gagal (null) — dimaksudkan
+  // sebagai "gagal, kembalikan yang lama saja". Tapi caller (semua lewat
+  // compute() di atas) tidak bisa membedakan return value ini dari file
+  // BARU yang benar-benar berhasil dibuat — keduanya sama-sama String.
+  // ImageEditorScreen (lihat _rotate/_flip/_applyCrop/_applyPreset/
+  // _applyManualEnhance) langsung `_generatedPaths.add(result)` atas
+  // SEMUA return value tanpa kecuali, dengan asumsi tiap hasil adalah file
+  // temp baru yang aman dihapus di dispose() kalau tidak jadi dipakai
+  // sebagai _resultPath. Kalau decode gagal PADA OPERASI PERTAMA (saat
+  // _currentPath == _originalPath == widget.imagePath — file scan asli
+  // dari Scan Flow, BUKAN salinan), return value yang "gagal" itu sama
+  // dengan _originalPath — dan _originalPath pun ikut masuk ke
+  // _generatedPaths. Skenario selanjutnya: (a) user tekan "Batal"/close
+  // tanpa _resultPath pernah di-set → dispose() menghapus SEMUA isi
+  // _generatedPaths, termasuk _originalPath — foto sumber asli hilang
+  // permanen meski user bermaksud MEMBATALKAN edit. (b) user lanjut edit
+  // lagi sampai berhasil (menghasilkan file BARU sebagai _resultPath) →
+  // dispose() menghapus semua _generatedPaths KECUALI _resultPath —
+  // _originalPath (yang nyasar masuk _generatedPaths di langkah pertama)
+  // tetap ikut terhapus, padahal bukan file perantara yang tidak dipakai.
+  // Fix: decode gagal adalah KEGAGALAN OPERASI, bukan "berhasil tapi tidak
+  // berubah" — lempar exception (sama seperti _processPrepareForOcr &
+  // _processPrepareForPdf yang sudah benar melakukan ini), supaya caller
+  // (blok try/catch di ImageEditorScreen) menampilkan pesan error dan
+  // TIDAK PERNAH mencatat path input sebagai hasil generate baru.
 
   Future<String> _processRotate(String imagePath, int angle) async {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
-    if (image == null) return imagePath;
+    if (image == null) throw Exception('Gagal decode gambar: $imagePath');
     image = img.copyRotate(image, angle: angle);
     return await _saveTemp(image);
   }
@@ -171,7 +201,7 @@ class ImageEnhanceService {
   Future<String> _processFlipHorizontal(String imagePath) async {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
-    if (image == null) return imagePath;
+    if (image == null) throw Exception('Gagal decode gambar: $imagePath');
     image = img.flipHorizontal(image);
     return await _saveTemp(image);
   }
@@ -179,7 +209,9 @@ class ImageEnhanceService {
   Future<String> _processCrop(_CropParams p) async {
     final bytes = await File(p.imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
-    if (image == null) return p.imagePath;
+    if (image == null) {
+      throw Exception('Gagal decode gambar: ${p.imagePath}');
+    }
     final x = (p.left * image.width).round().clamp(0, image.width - 1);
     final y = (p.top * image.height).round().clamp(0, image.height - 1);
     final w =
@@ -209,7 +241,7 @@ class ImageEnhanceService {
   Future<String> _processAutoEnhance(String imagePath) async {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
-    if (image == null) return imagePath;
+    if (image == null) throw Exception('Gagal decode gambar: $imagePath');
 
     // 1) Ratakan pencahayaan tidak merata dulu, supaya langkah berikutnya
     // menghitung statistik dari kondisi yang sudah rata — bukan campuran
@@ -445,7 +477,9 @@ class ImageEnhanceService {
   Future<String> _processManualEnhance(_ManualParams p) async {
     final bytes = await File(p.imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
-    if (image == null) return p.imagePath;
+    if (image == null) {
+      throw Exception('Gagal decode gambar: ${p.imagePath}');
+    }
 
     if (p.grayscale) {
       image = img.grayscale(image);
@@ -480,7 +514,9 @@ class ImageEnhanceService {
   Future<String> _processCompress(_CompressParams p) async {
     final bytes = await File(p.imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
-    if (image == null) return p.imagePath;
+    if (image == null) {
+      throw Exception('Gagal decode gambar: ${p.imagePath}');
+    }
 
     // Resize jika lebih besar dari maxDimension
     if (image.width > p.maxDimension || image.height > p.maxDimension) {
@@ -508,7 +544,7 @@ class ImageEnhanceService {
   Future<String> _processThumbnail(String imagePath) async {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
-    if (image == null) return imagePath;
+    if (image == null) throw Exception('Gagal decode gambar: $imagePath');
 
     const canvasSize = 200;
     final fitted = image.width >= image.height

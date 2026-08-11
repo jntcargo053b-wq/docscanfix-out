@@ -15,6 +15,7 @@ class ScanBody extends StatelessWidget {
     required this.onSave,
     required this.onAddMore,
     required this.onShare,
+    required this.onExportPdf,
     required this.onScanBarcode,
   });
 
@@ -22,6 +23,7 @@ class ScanBody extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onAddMore;
   final VoidCallback onShare;
+  final VoidCallback onExportPdf;
   final Future<void> Function() onScanBarcode;
 
   @override
@@ -52,7 +54,7 @@ class ScanBody extends StatelessWidget {
           ScanActionButtons(
             enabled: controller.hasImages && !controller.isProcessing,
             onSave: onSave,
-            onExportPdf: () => controller.exportPdf(),
+            onExportPdf: onExportPdf,
             onShare: onShare,
           ),
           const Gap(32),

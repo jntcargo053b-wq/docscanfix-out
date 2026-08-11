@@ -62,6 +62,36 @@ class DocumentStorageService {
     }
   }
 
+  /// Tulis [jsonStr] ke [_metaFile] secara ATOMIC: tulis dulu ke file
+  /// sementara di direktori yang SAMA (supaya rename di bawah adalah
+  /// operasi rename dalam satu filesystem, bukan copy lintas volume),
+  /// baru [File.rename] menggantikan file asli.
+  ///
+  /// FIX (P0 — Metadata JSON tidak atomic): sebelumnya _deferredSaveDocuments()
+  /// & _saveLocked() langsung `file.writeAsString(jsonStr)` ke
+  /// documents_meta.json yang sudah ada. writeAsString() BUKAN operasi
+  /// atomic — di level OS ini truncate-lalu-tulis byte demi byte. Kalau
+  /// proses ke-kill (force-stop, OOM killer, crash, device mati) TEPAT di
+  /// tengah penulisan itu, file berakhir sebagai JSON terpotong/corrupt
+  /// (mis. array yang belum ditutup). loadDocuments() men-catch SEMUA
+  /// error parse dan diam-diam fallback ke `[]` (lihat catch block di
+  /// bawah) — jadi bukan cuma update terakhir yang hilang, TAPI SELURUH
+  /// daftar dokumen "hilang" dari sisi user, padahal folder gambarnya
+  /// masih utuh di disk (cuma metadata yang menunjuk ke sana yang rusak).
+  /// Fix: pola write-to-temp-then-rename. File sementara ditulis penuh
+  /// dulu (kalau proses mati di sini, file ASLI documents_meta.json sama
+  /// sekali tidak tersentuh — masih versi lama yang utuh). Baru setelah
+  /// tulis selesai, [File.rename] menggantikan file lama — rename di
+  /// filesystem yang sama dijamin atomic oleh OS (POSIX rename(2) /
+  /// Windows MoveFileEx), tidak ada state "setengah tertulis" yang bisa
+  /// terlihat oleh pembaca berikutnya.
+  Future<void> _writeMetaAtomic(String jsonStr) async {
+    final file = await _metaFilePath;
+    final tmpFile = File('${file.path}.tmp');
+    await tmpFile.writeAsString(jsonStr, flush: true);
+    await tmpFile.rename(file.path);
+  }
+
   /// Save document list to disk with debouncing to batch writes
   Future<void> _deferredSaveDocuments() async {
     // Cancel previous timer
@@ -71,11 +101,10 @@ class DocumentStorageService {
     _writeTimer = Timer(_writeDelay, () async {
       if (_cachedDocuments == null) return;
       try {
-        final file = await _metaFilePath;
         final jsonStr = json.encode(
           _cachedDocuments!.map((d) => d.toJson()).toList(),
         );
-        await file.writeAsString(jsonStr);
+        await _writeMetaAtomic(jsonStr);
       } catch (e) {
         // Silently fail deferred writes; caller should handle critical saves
       }
@@ -87,11 +116,10 @@ class DocumentStorageService {
     if (_cachedDocuments == null) return;
     _writeTimer?.cancel();
     try {
-      final file = await _metaFilePath;
       final jsonStr = json.encode(
         _cachedDocuments!.map((d) => d.toJson()).toList(),
       );
-      await file.writeAsString(jsonStr);
+      await _writeMetaAtomic(jsonStr);
     } catch (e) {
       throw Exception('Failed to save documents: $e');
     }
@@ -261,41 +289,42 @@ class DocumentStorageService {
     final List<String> savedPaths = [];
     String? thumbnailPath;
 
+    // FIX (dokumen parsial): versi sebelumnya `continue` saat satu halaman
+    // gagal (path kosong, file hilang, atau copy gagal) dan cuma throw kalau
+    // SEMUA halaman gagal — artinya sebagian halaman yang gagal di-copy bisa
+    // hilang tanpa pemberitahuan apapun ke user; dokumen tetap "berhasil"
+    // tersimpan tapi dengan halaman lebih sedikit dari yang di-scan. Sekarang
+    // all-or-nothing: begitu SATU halaman gagal, langsung throw. Caller
+    // (ScanController.saveDocument()) sudah punya rollback penuh untuk kasus
+    // saveImages() throw (discardUnsavedDocument() di catch block, menghapus
+    // docDir termasuk halaman yang sempat ter-copy sebelum kegagalan ini) —
+    // jadi hasilnya bersih: dokumen tidak pernah tercatat dengan halaman
+    // bolong, dan user melihat error yang jelas alih-alih dokumen parsial
+    // yang terlihat baik-baik saja.
     for (int i = 0; i < tempPaths.length; i++) {
-      // FIX: tolak lebih awal jika tidak ada gambar
       final rawPath = tempPaths[i].trim();
-      if (rawPath.isEmpty) continue;
+      if (rawPath.isEmpty) {
+        throw Exception('Halaman ${i + 1} tidak valid (path kosong).');
+      }
 
       final tempFile = File(rawPath);
-      if (!await tempFile.exists()) continue;
+      if (!await tempFile.exists()) {
+        throw Exception('Halaman ${i + 1} tidak ditemukan di penyimpanan sementara.');
+      }
 
-      // FIX: sebelumnya nama file pakai index ASLI dari tempPaths (`i`),
-      // jadi kalau ada gambar sumber yang di-skip (kosong/hilang/gagal
-      // copy), penomoran file tersimpan jadi bolong — misalnya cuma ada
-      // page_2.jpg & page_3.jpg tanpa page_1.jpg. Sekarang dinomori
-      // berurutan berdasarkan posisi di savedPaths (hasil yang benar-benar
-      // berhasil disimpan), jadi selalu page_1, page_2, ... tanpa celah.
-      final newPath = '${docDir.path}/page_${savedPaths.length + 1}.jpg';
+      final newPath = '${docDir.path}/page_${i + 1}.jpg';
       try {
         await tempFile.copy(newPath);
       } catch (e) {
-        // Lewati halaman ini jika copy gagal (misal: storage penuh / permission I/O)
-        // Jangan lempar — biarkan halaman lain tetap diproses
-        continue;
+        // Storage penuh / permission I/O — gagalkan seluruh penyimpanan,
+        // jangan lewati halaman ini.
+        throw Exception('Gagal menyalin halaman ${i + 1}: $e');
       }
       savedPaths.add(newPath);
 
-      // FIX: sebelumnya cek `i == 0`, jadi kalau justru gambar PERTAMA yang
-      // gagal disimpan (kosong/hilang/gagal copy), thumbnailPath tidak
-      // pernah ke-set meski ada halaman lain yang berhasil. Sekarang pakai
-      // halaman pertama yang BENAR-BENAR berhasil disimpan.
+      // Penomoran sekarang selalu 1:1 dengan tempPaths (i + 1), tidak ada
+      // lagi celah karena tidak ada lagi halaman yang di-skip diam-diam.
       thumbnailPath ??= newPath;
-    }
-
-    // FIX: jika tidak ada satu pun file berhasil di-copy, lempar error
-    // agar caller tidak menyimpan dokumen kosong ke storage
-    if (savedPaths.isEmpty) {
-      throw Exception('Semua file gambar tidak ditemukan atau tidak dapat dibaca.');
     }
 
     // FIX (perf #1): sebelumnya thumbnailPath cuma menunjuk ke halaman

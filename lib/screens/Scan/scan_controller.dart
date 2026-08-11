@@ -16,17 +16,6 @@ import '../../models/scanned_document.dart';
 
 enum ScanStatus { idle, scanning, ready, processing, done, error }
 
-/// Dipakai internal saveDocument() untuk membawa nomor halaman yang gagal
-/// disimpan ke galeri sampai ke catch block, supaya pesan error ke user
-/// bisa spesifik (lihat komentar P0 di saveDocument()).
-class _SavePageException implements Exception {
-  final int pageNumber;
-  final Object cause;
-  _SavePageException({required this.pageNumber, required this.cause});
-  @override
-  String toString() => 'Gagal menyimpan halaman $pageNumber: $cause';
-}
-
 class ScanController extends ChangeNotifier {
   // ─── Dependencies ────────────────────────────────────────────────────────
   final ScannerService _scannerService;
@@ -109,6 +98,25 @@ class ScanController extends ChangeNotifier {
   // ─── Public Actions ───────────────────────────────────────────────────────
 
   Future<void> startScan(BuildContext context) async {
+    // FIX (P1 — Tambah halaman bisa dipanggil bersamaan): sebelumnya
+    // tidak ada guard re-entry di sini. UI (ScanScreen._buildBody())
+    // memang menyembunyikan tombol "Tambah Halaman" begitu isScanning
+    // true, tapi itu baru berlaku SETELAH rebuild berikutnya — kalau user
+    // tap dua kali sangat cepat (double-tap) sebelum frame rebuild itu
+    // sempat terjadi, _handleAddMore() di ScanScreen bisa terpanggil dua
+    // kali sebelum status berubah, dan keduanya sama-sama memanggil
+    // startScan(). Dua pemanggilan _scannerService.scanDocument(context)
+    // yang berjalan BERSAMAAN membuka dua sesi CunningDocumentScanner
+    // (activity native) di atas satu sama lain, yang bisa bentrok
+    // (crash, state UI native yang tidak konsisten, atau salah satu
+    // panggilan gagal dengan error tidak jelas ke user).
+    // Fix: guard di level controller (bukan cuma UI) — cek status di
+    // awal, bukan cuma andalkan timing rebuild widget. Ini pertahanan
+    // yang lebih andal karena tidak bergantung pada seberapa cepat
+    // Flutter merender ulang setelah notifyListeners().
+    if (_status == ScanStatus.scanning || _status == ScanStatus.processing) {
+      return;
+    }
     _setStatus(ScanStatus.scanning);
     _errorMessage = null;
 
@@ -289,20 +297,61 @@ class ScanController extends ChangeNotifier {
       _processingStatus = 'Menulis ke galeri…';
       notifyListeners();
 
-      // FIX (P0 — Error save tidak menunjukkan halaman mana gagal, bagian
-      // dari perbaikan yang sama): index halaman yang gagal ditangkap di
-      // sini supaya pesan error ke user spesifik, bukan generic
-      // "gagal menyimpan" yang tidak membantu user tahu harus apa.
+      // FIX (P1 — Save gallery bisa menghasilkan halaman parsial):
+      // sebelumnya loop ini throw _SavePageException pada kegagalan
+      // HALAMAN PERTAMA yang gagal, langsung lompat ke catch block di
+      // bawah — yang me-rollback dokumen INTERNAL (discardUnsavedDocument,
+      // menghapus Documents/{id}/ yang baru saja berhasil di-copy oleh
+      // saveImages() di atas). Masalahnya: halaman 1..i-1 yang SUDAH
+      // berhasil ditulis oleh SaverGallery.saveFile() di iterasi
+      // sebelumnya TETAP ada di galeri publik (Pictures/DocScan) — paket
+      // saver_gallery tidak punya API hapus, jadi tidak ada cara
+      // membersihkannya balik dari sini. Hasilnya: user melihat pesan
+      // "gagal disimpan" (dokumen memang tidak tercatat di app), padahal
+      // sebagian halaman scan-nya sudah nyangkut permanen & tidak berlabel
+      // di galeri foto pribadinya — persis kebalikan dari yang diharapkan
+      // (bukannya tidak ada jejak sama sekali, malah ada jejak PARSIAL
+      // yang tidak diketahui user).
+      // Fix: salinan ke galeri publik itu SEBENARNYA cuma "bonus" untuk
+      // kenyamanan user (sumber kebenaran tetap folder internal
+      // Documents/{id}/, sudah tercopy penuh lewat saveImages() di atas
+      // — itu sendiri sudah resilient per-halaman, lihat komentar di
+      // DocumentStorageService.saveImages()). Jadi loop ini sekarang
+      // best-effort juga: coba SEMUA halaman, jangan berhenti di
+      // kegagalan pertama, kumpulkan yang gagal. Dokumen tetap
+      // dikomit (addDocument) selama ada minimal satu halaman berhasil
+      // di-copy secara internal (selalu true di titik ini, karena
+      // saveImages() sudah melempar sebelum sampai sini kalau savedPaths
+      // kosong) — kegagalan ekspor ke galeri publik jadi warning
+      // non-fatal, bukan alasan membuang dokumen yang sebenarnya baik-baik
+      // saja.
+      // FIX (isSuccess tidak pernah dicek): SaverGallery.saveFile() (paket
+      // saver_gallery) mengembalikan objek SaveResult dan pada kegagalan yang
+      // WAJAR (izin ditolak saat runtime, storage penuh, path tidak valid)
+      // itu DITANGKAP secara internal oleh paket dan dikembalikan sebagai
+      // `isSuccess: false` — BUKAN dilempar sebagai exception. Loop
+      // sebelumnya cuma mengandalkan try/catch tanpa pernah membaca
+      // `.isSuccess`, jadi kegagalan gallery yang paling umum sekalipun lolos
+      // tanpa terdeteksi: `failedGalleryPages` tetap kosong, dan
+      // `_errorMessage` di bawah tidak pernah muncul meski semua/sebagian
+      // halaman sebenarnya gagal tersalin ke galeri publik. Sekarang hasilnya
+      // ditangkap dan `isSuccess` dicek eksplisit; try/catch tetap
+      // dipertahankan sebagai jaring pengaman untuk kasus non-standar yang
+      // benar-benar melempar.
+      final failedGalleryPages = <int>[];
       for (var i = 0; i < saved.imagePaths.length; i++) {
         try {
-          await SaverGallery.saveFile(
+          final result = await SaverGallery.saveFile(
             filePath: saved.imagePaths[i],
             fileName: 'DocScan_${id}_$i',
             androidRelativePath: 'Pictures/DocScan',
             skipIfExists: false,
           );
-        } catch (e) {
-          throw _SavePageException(pageNumber: i + 1, cause: e);
+          if (result.isSuccess != true) {
+            failedGalleryPages.add(i + 1);
+          }
+        } catch (_) {
+          failedGalleryPages.add(i + 1);
         }
       }
 
@@ -320,19 +369,35 @@ class ScanController extends ChangeNotifier {
       );
       await _storageService.addDocument(doc);
 
+      // Dokumen berhasil dikomit ke app terlepas dari hasil ekspor galeri
+      // publik di atas — beri tahu user kalau sebagian/semua salinan
+      // galeri gagal, tapi jangan tandai save-nya sebagai gagal.
+      if (failedGalleryPages.isNotEmpty) {
+        _errorMessage = failedGalleryPages.length == saved.imagePaths.length
+            ? 'Dokumen tersimpan di aplikasi, tapi gagal disalin ke galeri '
+                'publik. Pastikan penyimpanan tidak penuh.'
+            : 'Dokumen tersimpan di aplikasi. ${failedGalleryPages.length} '
+                'dari ${saved.imagePaths.length} halaman gagal disalin ke '
+                'galeri publik.';
+      }
+
       _setStatus(ScanStatus.done);
       _clearPreparedCache();
       return true;
     } catch (e) {
       // FIX (P0 — Partial Gallery save → orphan document files):
       // saveImages() di atas sudah men-copy byte ke folder permanen
-      // Documents/{id}/ SEBELUM loop SaverGallery.saveFile() maupun
-      // addDocument() dicapai. Kalau salah satu dari keduanya gagal di
-      // titik ini, folder itu (dan thumbnail terpisah) sudah ada di disk
-      // tapi TIDAK PERNAH tercatat di documents_meta.json — sampah
-      // permanen yang menumpuk tiap percobaan save yang gagal di tengah.
-      // Bersihkan di sini supaya kegagalan bersih: tidak ada jejak di
-      // disk untuk dokumen yang gagal disimpan.
+      // Documents/{id}/ SEBELUM addDocument() dicapai. Kalau ada
+      // kegagalan SEBELUM addDocument() berhasil dipanggil (mis. izin
+      // storage ditolak, saveImages() sendiri gagal total, atau
+      // addDocument()/penulisan metadata gagal), folder itu (dan
+      // thumbnail terpisah) sudah ada di disk tapi TIDAK PERNAH tercatat
+      // di documents_meta.json — sampah permanen yang menumpuk tiap
+      // percobaan save yang gagal di tengah. Bersihkan di sini supaya
+      // kegagalan bersih: tidak ada jejak di disk untuk dokumen yang
+      // gagal disimpan. (Catatan: sejak fix di atas, kegagalan
+      // SaverGallery per-halaman sendiri TIDAK lagi masuk ke catch ini —
+      // loop galeri sekarang best-effort dan tidak melempar.)
       if (id != null) {
         await _storageService.discardUnsavedDocument(
           id,
@@ -340,45 +405,87 @@ class ScanController extends ChangeNotifier {
         );
       }
 
-      _errorMessage = e is _SavePageException
-          ? 'Gagal menyimpan halaman ${e.pageNumber} ke galeri. '
-              'Pastikan penyimpanan tidak penuh, lalu coba lagi.'
-          : 'Gagal menyimpan dokumen. Pastikan penyimpanan tidak penuh, lalu coba lagi.';
+      _errorMessage =
+          'Gagal menyimpan dokumen. Pastikan penyimpanan tidak penuh, lalu coba lagi.';
       _setStatus(ScanStatus.error);
       return false;
     }
   }
 
+  /// BUG (Ekspor PDF diam-diam / tidak ada feedback): sebelumnya method ini
+  /// tidak pernah _setStatus(processing) — beda dari saveDocument() dan
+  /// shareImages() yang sudah benar. Akibatnya:
+  /// 1. `enabled` di ScanActionButtons (hasImages && !isProcessing) TIDAK
+  ///    PERNAH false selama generatePdf() berjalan, jadi tombol "Ekspor
+  ///    PDF" (dan Simpan/Bagikan, karena berbagi flag `enabled` yang sama)
+  ///    tetap bisa di-tap berkali-kali — spam-tap memicu beberapa
+  ///    generatePdf() berjalan bersamaan untuk gambar yang sama.
+  /// 2. Tidak ada try/catch — kalau generatePdf() melempar (mis. storage
+  ///    penuh), exception-nya jadi unhandled Future error karena dipanggil
+  ///    fire-and-forget dari VoidCallback di tombol; user tidak pernah
+  ///    lihat pesan error apa pun.
+  /// 3. File PDF yang berhasil dibuat tidak pernah diserahkan ke user —
+  ///    tidak ada notifyListeners(), tidak disimpan di ScannedDocument
+  ///    (dokumen belum tersimpan di titik ini), tidak dibagikan/dibuka.
+  ///    Hasilnya: file PDF orphan yang tidak tercatat dan tidak bisa
+  ///    diakses user dari mana pun — tekan tombol serasa tidak melakukan
+  ///    apa-apa.
+  /// Fix: pola yang sama seperti shareImages() (status processing selama
+  /// berjalan, guard terhadap pemanggilan ganda, try/catch/finally dengan
+  /// _errorMessage saat gagal) + langsung buka share sheet untuk PDF yang
+  /// baru dibuat (lewat PdfService.sharePdf) supaya user benar-benar
+  /// dapat file-nya, bukan cuma dibuang ke disk.
   Future<void> exportPdf() async {
-    if (_imagePaths.isEmpty) return;
+    if (_imagePaths.isEmpty || isProcessing) return;
+    _setStatus(ScanStatus.processing);
+    _processingStatus = 'Membuat PDF…';
+    notifyListeners();
 
-    // Check if we have cached OCR-prepared images we can reuse
-    final preparedPaths = <String>[];
-    for (final originalPath in _imagePaths) {
-      // Try to find cached PDF-prepared version first (highest quality for PDF)
-      if (_preparedForPdfCache.containsKey(originalPath)) {
-        preparedPaths.add(_preparedForPdfCache[originalPath]!);
+    try {
+      // Check if we have cached PDF-prepared images we can reuse
+      final preparedPaths = <String>[];
+      for (final originalPath in _imagePaths) {
+        // Try to find cached PDF-prepared version first (highest quality for PDF)
+        if (_preparedForPdfCache.containsKey(originalPath)) {
+          preparedPaths.add(_preparedForPdfCache[originalPath]!);
+        }
+        // Otherwise prepare fresh
+        else {
+          final prepared = await _enhanceService.prepareForPdf(originalPath);
+          preparedPaths.add(prepared);
+          _preparedForPdfCache[originalPath] = prepared;
+          _sessionTempFiles.add(prepared);
+        }
       }
-      // Otherwise prepare fresh
-      else {
-        final prepared = await _enhanceService.prepareForPdf(originalPath);
-        preparedPaths.add(prepared);
-        _preparedForPdfCache[originalPath] = prepared;
-        _sessionTempFiles.add(prepared);
-      }
+
+      final rawTitle = titleController.text.trim();
+      final title = rawTitle.isEmpty ? _defaultTitle() : rawTitle;
+
+      // FIX (P1 — PDF preprocessing berpotensi dua kali): preparedPaths di
+      // atas sudah lewat ImageEnhanceService.prepareForPdf() (downsize
+      // 1920px + encode quality 85). skipDownsize: true supaya
+      // PdfService._addImagePage() tidak decodeImage() ulang gambar yang
+      // sudah pasti tidak perlu diproses lagi — lihat komentar lengkap di
+      // PdfService.generatePdf().
+      final pdfPath = await _pdfService.generatePdf(
+        title: title,
+        imagePaths: preparedPaths,
+        skipDownsize: true,
+      );
+
+      // Dokumen belum tersimpan di titik ini (exportPdf dipanggil dari
+      // layar Scan sebelum "Simpan"), jadi tidak ada tempat permanen untuk
+      // mencatat pdfPath ini — serahkan langsung ke user lewat share sheet
+      // supaya file-nya benar-benar terpakai, bukan cuma tertulis ke disk
+      // tanpa ada yang tahu.
+      _processingStatus = 'Membuka PDF…';
+      notifyListeners();
+      await _pdfService.sharePdf(pdfPath, title);
+    } catch (e) {
+      _errorMessage = 'Gagal membuat PDF. Coba lagi.';
+    } finally {
+      _setStatus(ScanStatus.ready);
     }
-
-    // FIX (P1 — PDF preprocessing berpotensi dua kali): preparedPaths di
-    // atas sudah lewat ImageEnhanceService.prepareForPdf() (downsize
-    // 1920px + encode quality 85). skipDownsize: true supaya
-    // PdfService._addImagePage() tidak decodeImage() ulang gambar yang
-    // sudah pasti tidak perlu diproses lagi — lihat komentar lengkap di
-    // PdfService.generatePdf().
-    await _pdfService.generatePdf(
-      title: titleController.text,
-      imagePaths: preparedPaths,
-      skipDownsize: true,
-    );
   }
 
   /// FIX (integrasi penamaan): sebelumnya share dari layar Scan ini
@@ -510,7 +617,31 @@ class ScanController extends ChangeNotifier {
   /// _ocrFuture; saveDocument() await Future itu (kalau sedang berjalan)
   /// SEBELUM membaca _extractedText untuk dibungkus ke ScannedDocument.
   Future<void> _runOcr() {
-    if (_imagePaths.isEmpty) return Future.value();
+    if (_imagePaths.isEmpty) {
+      // FIX (P1 — OCR stale saat semua halaman dihapus): sebelumnya
+      // early-return di sini cuma `return Future.value()` tanpa menyentuh
+      // _extractedText sama sekali. Kalau user menghapus SEMUA halaman
+      // (removeImage() sampai _imagePaths kosong), _runOcr() dipanggil
+      // (lihat removeImage()) tapi langsung berhenti di sini — hasilnya
+      // _extractedText tetap berisi teks OCR dari halaman TERAKHIR yang
+      // baru saja dihapus, terus ditampilkan di ScanOcrSection meski
+      // tidak ada satu pun halaman lagi yang menjadi sumbernya. Kalau
+      // user lalu scan halaman baru yang belum sempat di-OCR (mis. OCR
+      // baru masih berjalan), teks basi dari sesi sebelumnya itu bahkan
+      // bisa ikut ke saveDocument() sebagai extractedText dokumen baru
+      // yang sama sekali tidak berhubungan.
+      // Fix: perlakukan kondisi "tidak ada halaman" sebagai state OCR
+      // yang bersih eksplisit — kosongkan _extractedText, matikan
+      // _isOcrRunning, dan naikkan _ocrRunId supaya run OCR manapun yang
+      // masih berjalan di background (untuk _imagePaths versi sebelum
+      // dikosongkan) tahu hasilnya sudah basi dan dibuang (lihat guard
+      // runId != _ocrRunId di _runOcrBody()).
+      _ocrRunId++;
+      _extractedText = null;
+      _isOcrRunning = false;
+      notifyListeners();
+      return Future.value();
+    }
     final future = _runOcrBody();
     _ocrFuture = future;
     return future;

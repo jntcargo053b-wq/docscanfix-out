@@ -67,12 +67,23 @@ class _ScanScreenState extends State<ScanScreen> {
     if (!mounted) return;                          // ← cek setelah setiap async gap
 
     if (success) {
+      // FIX (terkait P1 — Save gallery bisa menghasilkan halaman parsial):
+      // saveDocument() sekarang bisa return true (dokumen berhasil
+      // dikomit ke app) SEKALIGUS mengisi errorMessage dengan warning
+      // non-fatal kalau sebagian/semua salinan ke galeri publik gagal —
+      // lihat komentar lengkap di ScanController.saveDocument(). Sebelum
+      // fix ini, cabang `if (success)` di bawah SELALU menampilkan
+      // snackbar hijau generik dan langsung pop, tidak pernah mengecek
+      // errorMessage sama sekali di jalur sukses — warning itu jadi tidak
+      // pernah sampai ke user meski sudah disiapkan controller-nya.
+      final warning = _controller.errorMessage;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Berhasil disimpan ke galeri!'),
-          backgroundColor: Colors.green,
+        SnackBar(
+          content: Text(warning ?? 'Berhasil disimpan ke galeri!'),
+          backgroundColor: warning != null ? Colors.orange : Colors.green,
         ),
       );
+      if (warning != null) _controller.clearError();
       Navigator.pop(context, true);
     } else if (_controller.errorMessage != null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -88,6 +99,20 @@ class _ScanScreenState extends State<ScanScreen> {
   Future<void> _handleShare() async {
     await _controller.shareImages();
     // share sheet tidak memicu Navigator — tidak perlu cek mounted
+  }
+
+  Future<void> _handleExportPdf() async {
+    await _controller.exportPdf();
+    if (!mounted) return;
+    if (_controller.errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_controller.errorMessage!),
+          backgroundColor: Colors.red,
+        ),
+      );
+      _controller.clearError();
+    }
   }
 
   Future<void> _handleAddMore() async {
@@ -162,6 +187,7 @@ class _ScanScreenState extends State<ScanScreen> {
       onSave: _handleSave,
       onAddMore: _handleAddMore,
       onShare: _handleShare,
+      onExportPdf: _handleExportPdf,
       onScanBarcode: _handleScanBarcode,
     );
   }

@@ -35,9 +35,33 @@ class ScannerService {
     }
 
     try {
+      // FIX (P1 — Scanner masih FULL mode): sebelumnya androidScannerMode
+      // tidak pernah di-set, jadi plugin selalu jalan di mode default ML
+      // Kit-nya sendiri (FULL) — mode ini menerapkan filter/binarization
+      // OTOMATIS ala "dokumen hitam-putih tegas" di level native SEBELUM
+      // gambar sampai ke Dart. Masalahnya, ImageEnhanceService di app ini
+      // SUDAH punya pipeline enhance sendiri (percentile histogram
+      // stretch adaptif — lihat _processAutoEnhance) yang didesain jalan
+      // di atas foto ASLI apa adanya. Dua lapis auto-filter yang saling
+      // tidak tahu satu sama lain (FULL mode di native + auto-enhance di
+      // Dart) inilah akar salah satu bug overexposure yang pernah
+      // didiagnosis sebelumnya: filter FULL sudah mendorong highlight ke
+      // putih & posterize kontras duluan, lalu histogram stretch di atas
+      // itu mendorongnya lebih jauh lagi — hasilnya tulisan tipis/pudar
+      // bisa hilang total ke putih, bukan makin terbaca.
+      // androidScannerMode baru tersedia sejak plugin versi 2.2.0 (lihat
+      // bump versi di pubspec.yaml, sebelumnya terkunci ^1.4.0 yang belum
+      // punya parameter ini sama sekali — makanya sebelum ini tidak ada
+      // cara mengubahnya, defaultnya FULL apa pun yang dilakukan).
+      // Fix: AndroidScannerMode.base — cuma deteksi tepi & crop dokumen
+      // (tugas platform yang memang lebih baik dari ML Kit dibanding
+      // reimplementasi manual), TANPA filter otomatis tambahan. Koreksi
+      // pencahayaan/kontras sepenuhnya diserahkan ke ImageEnhanceService
+      // yang sudah adaptif per-foto, bukan dobel dengan preset native.
       final List<String>? paths = await CunningDocumentScanner.getPictures(
         noOfPages: 10,
         isGalleryImportAllowed: false,
+        androidScannerMode: AndroidScannerMode.base,
       );
       if (paths == null || paths.isEmpty) return null;
       // FIX: cunning_document_scanner kadang mengembalikan halaman yang
