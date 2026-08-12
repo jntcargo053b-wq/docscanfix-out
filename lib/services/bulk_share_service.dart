@@ -205,6 +205,35 @@ class BulkShareService {
       final doc = docs[i];
       onProgress?.call(BulkShareProgress(i, total, doc.title));
 
+      // PERF (PDF RAM untuk dokumen sangat panjang): dokumen di atas
+      // PdfService.chunkPageThreshold halaman lewat generatePdfChunked()
+      // (beberapa file PDF kecil, masing-masing pw.Document terpisah yang
+      // langsung di-save()+dibuang) alih-alih generatePdf() satu-Document
+      // biasa — lihat catatan lengkap di PdfService.generatePdfChunked().
+      // Jalur ini SENGAJA tidak di-cache ke doc.pdfPath (beda dari jalur
+      // normal di bawah): pdfPath cuma menampung satu path, sementara
+      // dokumen sepanjang ini menghasilkan beberapa file; caching hanya
+      // path pertama akan bikin share berikutnya salah kira dokumen sudah
+      // "siap" padahal cuma sebagian yang tersimpan. Untuk dokumen sepanjang
+      // ini, regenerate tiap share adalah trade-off yang lebih aman
+      // daripada state pdfPath yang menyesatkan.
+      if (doc.pageCount > PdfService.chunkPageThreshold) {
+        final chunkPaths = await _pdfService.generatePdfChunked(
+          title: doc.title,
+          imagePaths: doc.imagePaths,
+        );
+        for (int c = 0; c < chunkPaths.length; c++) {
+          files.add(XFile(
+            chunkPaths[c],
+            mimeType: 'application/pdf',
+            name: '${i + 1}_${_safeFileName(doc.title)}_bag${c + 1}dari'
+                '${chunkPaths.length}.pdf',
+          ));
+        }
+        onProgress?.call(BulkShareProgress(i + 1, total, doc.title));
+        continue;
+      }
+
       var pdfPath = doc.pdfPath ?? '';
       if (pdfPath.isEmpty || !await File(pdfPath).exists()) {
         pdfPath = await _pdfService.generatePdf(

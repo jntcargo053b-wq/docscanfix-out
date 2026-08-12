@@ -1,8 +1,17 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'services/scanner_service.dart';
 import 'theme/app_theme.dart';
 
 void main() {
+  // PERF (startup temp cleanup): fire-and-forget, TIDAK di-await — file
+  // basi dari sesi yang crash/di-kill paksa bukan hal yang harus selesai
+  // sebelum UI pertama tampil (lihat catatan lengkap di
+  // ScannerService.purgeStaleTempFiles()). Kalau di-await di sini, startup
+  // app ikut tertunda oleh listing seluruh isi temp dir yang bisa besar,
+  // padahal ini murni housekeeping latar belakang.
+  unawaited(ScannerService.purgeStaleTempFiles());
   runApp(const MyApp());
 }
 

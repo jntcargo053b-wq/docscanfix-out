@@ -42,6 +42,21 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _searchDebounceTimer;
   static const Duration _searchDelay = Duration(milliseconds: 300);
 
+  // PERF (pagination render daftar dokumen): ListView.builder sendiri
+  // sudah lazy soal WIDGET (item di luar viewport tidak dibangun), tapi
+  // _buildDocumentList() sebelumnya selalu meneruskan SELURUH
+  // _displayedDocs sebagai itemCount — untuk koleksi besar ini tetap
+  // berarti daftar penuh siap "dibangun on-demand" tanpa batas atas,
+  // dan tiap scroll cepat bisa memicu decode banyak thumbnail sekaligus.
+  // _visibleCount membatasi jumlah item yang benar-benar diserahkan ke
+  // ListView di awal, ditambah bertahap ([_pageSize] per langkah) saat
+  // user mendekati akhir list — bukan mengurangi data di memori (semua
+  // metadata memang sudah ada di _documents/_displayedDocs), tapi
+  // mengurangi jumlah item yang perlu dipertimbangkan/di-render sekaligus.
+  static const int _pageSize = 40;
+  int _visibleCount = _pageSize;
+  final _scrollController = ScrollController();
+
   // Token pencarian: setiap panggilan _runSearch dapat nomor baru. Karena
   // pencarian sekarang async (bisa lewat isolate untuk koleksi besar), hasil
   // dari query lama yang baru selesai belakangan harus dibuang supaya list
@@ -52,13 +67,29 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadDocuments();
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     _searchDebounceTimer?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Tambah [_visibleCount] bertahap saat scroll mendekati akhir list yang
+  /// sedang dirender — lihat catatan lengkap di deklarasi [_visibleCount].
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final threshold = _scrollController.position.maxScrollExtent - 400;
+    if (_scrollController.position.pixels >= threshold &&
+        _visibleCount < _displayedDocs.length) {
+      setState(() {
+        _visibleCount =
+            (_visibleCount + _pageSize).clamp(0, _displayedDocs.length);
+      });
+    }
   }
 
   Future<void> _loadDocuments() async {
@@ -88,6 +119,10 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _displayedDocs = result;
       _isSearching = false;
+      // Hasil daftar baru (dari load ulang atau query pencarian berubah) —
+      // mulai lagi dari window pertama, bukan lanjut dari posisi scroll
+      // koleksi/hasil sebelumnya yang sudah tidak relevan.
+      _visibleCount = _pageSize.clamp(0, _displayedDocs.length);
     });
   }
 
@@ -539,11 +574,14 @@ class _HomeScreenState extends State<HomeScreen> {
         subtitle: 'Scan dokumen pertama Anda',
       );
     }
+    // Window bertahap — lihat catatan di deklarasi _visibleCount di atas.
+    final visibleDocs = docs.take(_visibleCount).toList();
     return ListView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-      itemCount: docs.length,
+      itemCount: visibleDocs.length,
       itemBuilder: (context, index) {
-        final doc = docs[index];
+        final doc = visibleDocs[index];
         return DocumentCard(
           key: ValueKey(doc.id),
           document: doc,

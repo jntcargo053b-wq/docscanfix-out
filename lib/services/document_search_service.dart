@@ -3,17 +3,18 @@ import '../models/scanned_document.dart';
 
 /// Menjalankan pencarian/filter dokumen.
 ///
-/// Untuk koleksi kecil, filter jalan langsung (spawn isolate baru untuk
-/// setiap keystroke justru lebih mahal daripada scan sinkron singkat).
-/// Untuk koleksi besar (jumlah dokumen di atas [isolateThreshold], atau
-/// total karakter OCR yang besar), filter dijalankan lewat [compute] di
-/// background isolate supaya UI thread tidak nge-block saat men-scan
-/// extractedText yang panjang dari banyak dokumen sekaligus.
+/// SELALU dijalankan lewat [compute] di background isolate, apa pun ukuran
+/// koleksinya, supaya UI thread tidak pernah ikut nge-block sedikit pun
+/// saat men-scan extractedText — konsisten dan dapat diprediksi, tidak
+/// bergantung pada tebakan ambang jumlah dokumen yang bisa meleset untuk
+/// koleksi dengan extractedText sangat panjang tapi jumlah dokumen sedikit
+/// (di bawah ambang tapi tetap berat untuk di-scan sinkron).
+///
+/// [isolateThreshold] tetap dipertahankan (bukan dihapus) hanya karena
+/// dipakai di tempat lain (home_screen.dart) untuk memutuskan kapan
+/// menampilkan indikator loading — bukan lagi untuk memutuskan jalur
+/// sinkron/isolate di sini.
 class DocumentSearchService {
-  // Di bawah ambang ini, overhead spawn/message-passing ke isolate lebih
-  // mahal daripada scan sinkron singkat (~sub-ms). Di atasnya, terutama saat
-  // extractedText panjang (hasil OCR banyak dokumen), scan sinkron bisa makan
-  // puluhan ms dan bikin keystroke terasa nge-jank — jadi dilempar ke isolate.
   static const int isolateThreshold = 150;
 
   static Future<List<ScannedDocument>> filter(
@@ -23,9 +24,6 @@ class DocumentSearchService {
     if (query.trim().isEmpty) return documents;
 
     final args = _FilterArgs(documents, query);
-    if (documents.length < isolateThreshold) {
-      return _filterSync(args);
-    }
     return compute(_filterSync, args);
   }
 }

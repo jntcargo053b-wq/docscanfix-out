@@ -3,6 +3,7 @@ import 'package:crypto/crypto.dart';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class ScannerService {
@@ -152,6 +153,53 @@ class ScannerService {
         final file = File(path);
         if (await file.exists()) await file.delete();
       } catch (_) {}
+    }
+  }
+
+  /// Purge file basi di getTemporaryDirectory() yang lebih tua dari
+  /// [maxAge] (default 24 jam).
+  ///
+  /// cleanupFiles() di atas menghapus temp file eksplisit lewat daftar path
+  /// yang MASIH diketahui controller (jalur normal — user batal scan,
+  /// simpan, dsb). Tapi cunning_document_scanner, image_picker, dan
+  /// ImageEnhanceService (_saveTemp/_saveTempNamed: enhanced_*, ocr_prep_*,
+  /// pdf_prep_*, dan thumbnail sementara sebelum jadi permanen) semua
+  /// menulis ke getTemporaryDirectory() yang sama — kalau app di-kill paksa
+  /// (force-stop, OOM killer, crash) di TENGAH sesi scan/enhance, daftar
+  /// path itu hilang bersama proses, dan file-file itu nyangkut permanen
+  /// di temp dir; OS Android boleh membersihkan cache dir kapan saja tapi
+  /// tidak dijamin/tidak bisa diandalkan sebagai satu-satunya mekanisme
+  /// cleanup, apalagi untuk storage yang mepet.
+  /// Dipanggil sekali tiap startup app (lihat main.dart) sebagai
+  /// pelengkap, bukan pengganti, cleanupFiles() — jaring pengaman untuk
+  /// file yatim dari sesi yang tidak pernah sempat cleanup normal.
+  /// Berjalan best-effort di background: kegagalan baca/hapus per-file
+  /// tidak menghentikan proses, dan tidak pernah melempar ke caller
+  /// (dipanggil fire-and-forget dari main(), sebelum runApp).
+  static Future<void> purgeStaleTempFiles({
+    Duration maxAge = const Duration(hours: 24),
+  }) async {
+    try {
+      final dir = await getTemporaryDirectory();
+      if (!await dir.exists()) return;
+
+      final cutoff = DateTime.now().subtract(maxAge);
+      await for (final entity in dir.list(followLinks: false)) {
+        if (entity is! File) continue;
+        try {
+          final stat = await entity.stat();
+          if (stat.modified.isBefore(cutoff)) {
+            await entity.delete();
+          }
+        } catch (_) {
+          // Satu file gagal di-stat/hapus (race dengan proses lain yang
+          // masih menulis, permission, dsb.) — lewati, jangan hentikan
+          // pembersihan file lain.
+        }
+      }
+    } catch (_) {
+      // getTemporaryDirectory()/listing gagal total — best-effort, jangan
+      // sampai mengganggu startup app.
     }
   }
 }

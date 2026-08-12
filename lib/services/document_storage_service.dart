@@ -1,9 +1,19 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/scanned_document.dart';
 import 'image_enhance_service.dart';
+
+/// Top-level (dibutuhkan oleh [compute]): parse JSON string metadata jadi
+/// List<ScannedDocument> di background isolate. Dipakai oleh loadDocuments()
+/// untuk koleksi besar — lihat catatan di sana.
+List<ScannedDocument> _parseDocumentsJson(String jsonStr) {
+  final List<dynamic> jsonList = json.decode(jsonStr);
+  return jsonList.map((j) => ScannedDocument.fromJson(j)).toList()
+    ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+}
 
 class DocumentStorageService {
   static final DocumentStorageService _instance =
@@ -33,6 +43,20 @@ class DocumentStorageService {
     return File('${dir.path}/$_metaFile');
   }
 
+  // PERF (lazy-load metadata untuk koleksi besar): di bawah ukuran file ini,
+  // parse sinkron di main isolate (~sub-ms – beberapa ms) tidak terasa. Di
+  // atasnya, json.decode() + map(fromJson) atas ribuan entri (tiap entri
+  // bisa membawa extractedText hasil OCR yang panjang) bisa memblokir main
+  // thread cukup lama untuk terasa nge-jank saat app dibuka/list di-refresh.
+  // documents_meta.json TIDAK di-chunk secara fisik (satu file JSON array
+  // utuh) — package:convert bawaan Flutter tidak punya streaming JSON
+  // parser incremental yang dipakai proyek ini, jadi "streaming" di sini
+  // berarti memindahkan decode+parse penuh ke background isolate lewat
+  // compute() (bukan mem-parsial baca file), supaya UI thread tetap
+  // responsif selama parse berlangsung — bukan mengurangi total kerja
+  // parse-nya.
+  static const int _largeMetaFileBytes = 256 * 1024; // 256 KB
+
   /// Load all documents from cache or disk
   /// Cache is validated to avoid stale data across multiple calls
   Future<List<ScannedDocument>> loadDocuments() async {
@@ -49,10 +73,14 @@ class DocumentStorageService {
       }
 
       final jsonStr = await file.readAsString();
-      final List<dynamic> jsonList = json.decode(jsonStr);
-      _cachedDocuments =
-          jsonList.map((j) => ScannedDocument.fromJson(j)).toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final fileIsLarge = jsonStr.length > _largeMetaFileBytes;
+      _cachedDocuments = fileIsLarge
+          // Koleksi besar: decode+parse di background isolate supaya main
+          // thread tidak ikut blok selama proses ini berlangsung.
+          ? await compute(_parseDocumentsJson, jsonStr)
+          // Koleksi kecil: tetap sinkron — overhead spawn isolate untuk
+          // payload kecil lebih mahal daripada manfaatnya.
+          : _parseDocumentsJson(jsonStr);
       _cacheValid = true;
       return List.unmodifiable(_cachedDocuments!);
     } catch (e) {
@@ -60,6 +88,28 @@ class DocumentStorageService {
       _cacheValid = true;
       return [];
     }
+  }
+
+  /// Ambil satu "halaman" dari daftar dokumen yang sudah di-load (lewat
+  /// [loadDocuments], yang meng-cache hasilnya) — untuk pagination di UI
+  /// (lihat home_screen.dart), supaya widget list awal hanya perlu
+  /// membangun & mendekode thumbnail untuk [limit] dokumen pertama, bukan
+  /// seluruh koleksi sekaligus.
+  ///
+  /// Catatan: ini bukan pagination di level I/O (documents_meta.json tetap
+  /// dibaca & di-parse utuh sekali oleh loadDocuments() di atas — format
+  /// JSON array tunggal tidak mendukung baca sebagian tanpa parser
+  /// streaming khusus yang tidak dipakai proyek ini). Manfaatnya di sisi
+  /// UI: windowing jumlah item yang dirender/di-build, bukan mengurangi
+  /// I/O/parse metadata.
+  Future<List<ScannedDocument>> loadDocumentsPage({
+    required int offset,
+    required int limit,
+  }) async {
+    final all = await loadDocuments();
+    if (offset >= all.length) return const [];
+    final end = (offset + limit).clamp(0, all.length);
+    return all.sublist(offset, end);
   }
 
   /// Tulis [jsonStr] ke [_metaFile] secara ATOMIC: tulis dulu ke file
@@ -287,7 +337,31 @@ class DocumentStorageService {
     await docDir.create(recursive: true);
 
     final List<String> savedPaths = [];
-    String? thumbnailPath;
+
+    // PERF (thumbnail sebelum permanent save, bukan sesudah): versi
+    // sebelumnya generate thumbnail SETELAH seluruh loop copy halaman di
+    // bawah selesai (menunggu semua halaman ter-copy dulu, baru mulai
+    // generate thumbnail dari path PERMANEN halaman pertama) — jadi
+    // caller (ScanController.saveDocument()) menunggu dua tahap yang
+    // sebetulnya independen secara BERURUTAN: copy semua halaman, BARU
+    // generate thumbnail. Halaman pertama (tempPaths.first) sudah ada &
+    // siap dibaca sejak awal, tidak perlu menunggu halaman² lain selesai
+    // di-copy dulu. Fix: mulai generate thumbnail dari file TEMP halaman
+    // pertama serentak (Future, belum di-await) dengan loop copy di bawah,
+    // supaya kerja isolate thumbnail (resize+encode) tumpang tindih dengan
+    // I/O copy halaman lain alih-alih menunggu di belakangnya — total
+    // waktu saveImages() mendekati max(waktu-copy, waktu-thumbnail),
+    // bukan jumlah keduanya. Formatnya tetap JPEG kecil pre-resized
+    // (200x200 q75, lihat ImageEnhanceService.generateThumbnail) — WebP
+    // tidak dipakai karena versi package:image di proyek ini tidak
+    // punya encoder WebP yang terverifikasi, dan JPEG kecil sudah "fast
+    // loading" untuk kebutuhan thumbnail 200x200 ini.
+    final thumbnailFuture = tempPaths.isNotEmpty
+        ? ImageEnhanceService()
+            .generateThumbnail(tempPaths.first.trim())
+            .then<String?>((p) => p)
+            .catchError((_) => null)
+        : Future<String?>.value(null);
 
     // FIX (dokumen parsial): versi sebelumnya `continue` saat satu halaman
     // gagal (path kosong, file hilang, atau copy gagal) dan cuma throw kalau
@@ -301,51 +375,51 @@ class DocumentStorageService {
     // jadi hasilnya bersih: dokumen tidak pernah tercatat dengan halaman
     // bolong, dan user melihat error yang jelas alih-alih dokumen parsial
     // yang terlihat baik-baik saja.
-    for (int i = 0; i < tempPaths.length; i++) {
-      final rawPath = tempPaths[i].trim();
-      if (rawPath.isEmpty) {
-        throw Exception('Halaman ${i + 1} tidak valid (path kosong).');
-      }
+    try {
+      for (int i = 0; i < tempPaths.length; i++) {
+        final rawPath = tempPaths[i].trim();
+        if (rawPath.isEmpty) {
+          throw Exception('Halaman ${i + 1} tidak valid (path kosong).');
+        }
 
-      final tempFile = File(rawPath);
-      if (!await tempFile.exists()) {
-        throw Exception('Halaman ${i + 1} tidak ditemukan di penyimpanan sementara.');
-      }
+        final tempFile = File(rawPath);
+        if (!await tempFile.exists()) {
+          throw Exception('Halaman ${i + 1} tidak ditemukan di penyimpanan sementara.');
+        }
 
-      final newPath = '${docDir.path}/page_${i + 1}.jpg';
-      try {
-        await tempFile.copy(newPath);
-      } catch (e) {
-        // Storage penuh / permission I/O — gagalkan seluruh penyimpanan,
-        // jangan lewati halaman ini.
-        throw Exception('Gagal menyalin halaman ${i + 1}: $e');
+        final newPath = '${docDir.path}/page_${i + 1}.jpg';
+        try {
+          await tempFile.copy(newPath);
+        } catch (e) {
+          // Storage penuh / permission I/O — gagalkan seluruh penyimpanan,
+          // jangan lewati halaman ini.
+          throw Exception('Gagal menyalin halaman ${i + 1}: $e');
+        }
+        savedPaths.add(newPath);
+        // Penomoran sekarang selalu 1:1 dengan tempPaths (i + 1), tidak ada
+        // lagi celah karena tidak ada lagi halaman yang di-skip diam-diam.
       }
-      savedPaths.add(newPath);
-
-      // Penomoran sekarang selalu 1:1 dengan tempPaths (i + 1), tidak ada
-      // lagi celah karena tidak ada lagi halaman yang di-skip diam-diam.
-      thumbnailPath ??= newPath;
+    } catch (_) {
+      // Loop copy gagal di tengah jalan — thumbnailFuture yang sudah
+      // dimulai paralel di atas mungkin masih berjalan atau sudah selesai
+      // menghasilkan file. Karena saveImages() akan throw (caller tidak
+      // pernah menerima thumbnailPath ini untuk dibersihkan lewat
+      // discardUnsavedDocument()), file itu harus dibersihkan di sini juga
+      // supaya tidak jadi sampah tak tercatat.
+      final orphanThumb = await thumbnailFuture;
+      if (orphanThumb != null) {
+        _deleteFileInBackground(orphanThumb);
+      }
+      rethrow;
     }
 
-    // FIX (perf #1): sebelumnya thumbnailPath cuma menunjuk ke halaman
-    // pertama versi FULL-RES (page_1.jpg, bisa 12–48 MP hasil kamera —
-    // lihat komentar di ImageEnhanceService). DocumentCard men-decode file
-    // ini penuh setiap render row cuma untuk ditampilkan di kotak 60x60,
-    // yang berat di CPU/memori tiap scroll daftar dokumen.
-    // ImageEnhanceService.generateThumbnail() (resize 200x200, quality 75)
-    // sudah ada dari sesi sebelumnya tapi tidak pernah dipanggil — sekarang
-    // benar-benar dipakai di sini, supaya thumbnailPath menunjuk ke file
-    // KECIL yang memang didesain untuk thumbnail, bukan halaman asli.
-    // Kalau generate gagal (mis. file corrupt), fallback ke halaman pertama
-    // seperti perilaku lama — jangan sampai gagal generate thumbnail
-    // menggagalkan penyimpanan dokumen.
-    if (thumbnailPath != null) {
-      try {
-        thumbnailPath = await ImageEnhanceService().generateThumbnail(thumbnailPath);
-      } catch (_) {
-        // biarkan thumbnailPath tetap menunjuk ke halaman pertama full-res
-      }
-    }
+    // Tunggu hasil thumbnail yang sudah mulai diproses paralel di atas.
+    // Kalau generate dari file temp gagal (mis. file corrupt) ATAU
+    // tempPaths kosong tapi savedPaths ada isinya, fallback ke path
+    // PERMANEN halaman pertama yang barusan selesai di-copy — sama
+    // seperti perilaku lama, sekadar jaring pengaman terakhir.
+    String? thumbnailPath = await thumbnailFuture;
+    thumbnailPath ??= savedPaths.isNotEmpty ? savedPaths.first : null;
 
     return (imagePaths: savedPaths, thumbnailPath: thumbnailPath);
   }

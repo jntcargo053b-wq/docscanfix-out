@@ -1,3 +1,4 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
@@ -243,20 +244,49 @@ class ImageEnhanceService {
     var image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
 
+    // PROFILING: _correctIllumination() adalah loop per-pixel (O(width×
+    // height), dengan clamp+divide per channel) — kandidat kuat jadi
+    // bagian paling berat dari pipeline auto-enhance, tapi belum pernah
+    // diukur nyata di device (cuma dugaan dari membaca kode). Dibungkus
+    // Timeline.timeSync di sini (bukan cuma di sekitar seluruh
+    // _processAutoEnhance) supaya kontribusi tahap INI secara spesifik
+    // kelihatan terpisah dari tone-mapping & sharpen di DevTools Timeline
+    // (fungsi ini jalan di background isolate lewat compute() — event
+    // Timeline dari isolate non-main tetap tercatat & terlihat per-isolate
+    // di Observatory/DevTools, jadi tetap berguna diukur di sini, bukan
+    // cuma di isolate utama). Android Profiler (CPU Profiler → method
+    // trace) di device fisik kelas menengah-bawah adalah pelengkap yang
+    // lebih representatif untuk keputusan lanjutan (mis. apakah perlu
+    // downscale peta iluminasi lebih agresif) dibanding angka di emulator.
+    developer.Timeline.startSync('ImageEnhance.correctIllumination');
     // 1) Ratakan pencahayaan tidak merata dulu, supaya langkah berikutnya
     // menghitung statistik dari kondisi yang sudah rata — bukan campuran
     // area terang & gelap dalam satu foto.
-    image = _correctIllumination(image);
+    try {
+      image = _correctIllumination(image);
+    } finally {
+      developer.Timeline.finishSync();
+    }
 
     // 2) Titik hitam/putih (persentil 1%/99%) + gamma adaptif dihitung dari
     // HASIL koreksi iluminasi, digabung jadi satu LUT, diterapkan 1 pass.
-    final stretch = _computeHistogramStretch(image);
-    final lut = _buildToneLut(image, stretch);
-    image = _applyLut(image, lut);
+    developer.Timeline.startSync('ImageEnhance.toneMapping');
+    try {
+      final stretch = _computeHistogramStretch(image);
+      final lut = _buildToneLut(image, stretch);
+      image = _applyLut(image, lut);
+    } finally {
+      developer.Timeline.finishSync();
+    }
 
     // 3) Sharpen adaptif, diterapkan TERAKHIR supaya tidak menajamkan noise
     // dari pixel yang baru saja di-stretch/di-clip.
-    image = _applyAdaptiveSharpen(image);
+    developer.Timeline.startSync('ImageEnhance.adaptiveSharpen');
+    try {
+      image = _applyAdaptiveSharpen(image);
+    } finally {
+      developer.Timeline.finishSync();
+    }
 
     return await _saveTemp(image);
   }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
@@ -146,6 +147,91 @@ class PdfService {
     if (pageCount > 25) return (maxDimension: 1280, quality: 70);
     if (pageCount > 10) return (maxDimension: 1600, quality: 78);
     return (maxDimension: 1920, quality: 85);
+  }
+
+  /// Di atas jumlah halaman ini, generatePdf() satu-Document (lihat catatan
+  /// panjang di atas soal closure pw.Document menahan SEMUA gambar sampai
+  /// save()) mulai berisiko menahan puluhan MB sekaligus meski tiap halaman
+  /// sudah di-downsize agresif oleh _pageBudgetTier(). [generatePdfChunked]
+  /// di bawah adalah opsi untuk kasus ini.
+  static const int chunkPageThreshold = 30;
+
+  /// Alternatif [generatePdf] untuk dokumen SANGAT panjang: pecah halaman
+  /// jadi beberapa file PDF kecil ([pagesPerChunk] halaman per file),
+  /// masing-masing dibangun lewat [pw.Document] TERPISAH yang langsung
+  /// di-save() dan dibuang sebelum chunk berikutnya mulai dibangun.
+  ///
+  /// Ini betul-betul "menyidestep" masalah retensi yang dijelaskan di
+  /// komentar generatePdf(): closure `build` pw.Document menahan referensi
+  /// pw.MemoryImage tiap halaman sampai pdf.save() dipanggil — itu
+  /// keterbatasan struktural package pdf yang tidak bisa diakali selama
+  /// semua halaman berada di SATU Document. Dengan memecah jadi beberapa
+  /// Document kecil yang masing-masing di-save() lalu dilepas (tidak ada
+  /// referensi tersisa ke Document/MemoryImage-nya begitu method chunk
+  /// selesai), GC bisa membebaskan RAM chunk sebelumnya SEBELUM chunk
+  /// berikutnya mulai di-decode — peak RAM terikat ke ukuran ~1 chunk
+  /// (pagesPerChunk halaman), bukan ke jumlah total halaman dokumen.
+  ///
+  /// Trade-off yang disadari & disengaja: hasilnya beberapa FILE PDF
+  /// terpisah, bukan satu PDF gabungan — package pdf (murni Dart, write-
+  /// only) tidak punya cara mem-parse/menggabungkan PDF yang sudah jadi
+  /// tanpa rasterize ulang tiap halaman (yang justru menurunkan kualitas
+  /// dan memindahkan masalah retensi RAM ke tahap gabung, bukan
+  /// menghilangkannya). Untuk dokumen sepanjang ini, beberapa lampiran PDF
+  /// dalam satu share sheet adalah trade-off yang jauh lebih aman daripada
+  /// risiko OOM. Caller (BulkShareService.shareAsPdf()) yang memutuskan
+  /// kapan pakai jalur ini (lihat [chunkPageThreshold]) — dokumen pendek
+  /// sampai sedang tetap lewat [generatePdf] biasa (satu file, seperti
+  /// sebelumnya, tidak ada perubahan perilaku).
+  Future<List<String>> generatePdfChunked({
+    required String title,
+    required List<String> imagePaths,
+    int pagesPerChunk = 10,
+    PdfPageFormat pageFormat = PdfPageFormat.a4,
+  }) async {
+    if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
+
+    final tier = _pageBudgetTier(imagePaths.length);
+    final dir = await getApplicationDocumentsDirectory();
+    final pdfDir = Directory('${dir.path}/DocScan');
+    await pdfDir.create(recursive: true);
+    final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
+
+    final chunkPaths = <String>[];
+    final totalChunks = (imagePaths.length / pagesPerChunk).ceil();
+
+    for (int c = 0; c < totalChunks; c++) {
+      final start = c * pagesPerChunk;
+      final end = math.min(start + pagesPerChunk, imagePaths.length);
+      final chunkImages = imagePaths.sublist(start, end);
+
+      // pw.Document baru per chunk — sengaja dideklarasikan di dalam loop
+      // (bukan di luar) supaya scope-nya berakhir tiap iterasi dan chunk
+      // sebelumnya benar-benar bisa di-GC.
+      final chunkPdf = pw.Document(title: '$title (${c + 1}/$totalChunks)', author: 'DocScan App');
+      for (final path in chunkImages) {
+        final file = File(path);
+        if (!await file.exists()) continue;
+        await _addImagePage(
+          chunkPdf,
+          path,
+          pageFormat,
+          maxDimension: tier.maxDimension,
+          quality: tier.quality,
+        );
+      }
+
+      final fileName = '${safeTitle}_part${c + 1}of$totalChunks'
+          '_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final outFile = File('${pdfDir.path}/$fileName');
+      await outFile.writeAsBytes(await chunkPdf.save());
+      chunkPaths.add(outFile.path);
+      // chunkPdf keluar scope di sini — tidak ada referensi tersisa ke
+      // Document/MemoryImage chunk ini, GC bebas membebaskannya sebelum
+      // chunk berikutnya mulai decode gambar.
+    }
+
+    return chunkPaths;
   }
 
   /// Baca satu gambar, downsize kalau perlu ke [maxDimension] sisi
