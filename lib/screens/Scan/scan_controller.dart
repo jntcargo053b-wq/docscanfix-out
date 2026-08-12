@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -13,6 +12,8 @@ import '../../services/pdf_service.dart';
 import '../../services/document_storage_service.dart';
 import '../../services/image_enhance_service.dart';
 import '../../models/scanned_document.dart';
+import '../../utils/file_hash.dart';
+import '../../utils/perf_probe.dart';
 
 enum ScanStatus { idle, scanning, ready, processing, done, error }
 
@@ -170,9 +171,10 @@ class ScanController extends ChangeNotifier {
   Future<Set<String>> _hashAll(List<String> paths) async {
     final hashes = <String>{};
     for (final p in paths) {
-      try {
-        hashes.add(md5.convert(await File(p).readAsBytes()).toString());
-      } catch (_) {}
+      // FIX (P1 — MD5 readAsBytes() baca seluruh file ke RAM): hash lewat
+      // streaming (lihat hashFileStreaming()), bukan readAsBytes() penuh.
+      final hash = await hashFileStreaming(p);
+      if (hash != null) hashes.add(hash);
     }
     return hashes;
   }
@@ -188,10 +190,12 @@ class ScanController extends ChangeNotifier {
     final seen = {...existingHashes};
     final result = <String>[];
     for (final p in newPaths) {
-      try {
-        final hash = md5.convert(await File(p).readAsBytes()).toString();
-        if (seen.add(hash)) result.add(p);
-      } catch (_) {
+      // FIX (P1 — MD5 readAsBytes() baca seluruh file ke RAM): hash lewat
+      // streaming (lihat hashFileStreaming()), bukan readAsBytes() penuh.
+      final hash = await hashFileStreaming(p);
+      if (hash == null) {
+        result.add(p);
+      } else if (seen.add(hash)) {
         result.add(p);
       }
     }
@@ -686,23 +690,7 @@ class ScanController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Prepare images for OCR, using cache if available
-      final preparedPaths = <String>[];
-      for (final originalPath in _imagePaths) {
-        if (_preparedForOcrCache.containsKey(originalPath)) {
-          // Use cached prepared version
-          preparedPaths.add(_preparedForOcrCache[originalPath]!);
-        } else {
-          // Prepare fresh and cache
-          final prepared = await _enhanceService.prepareForOcr(originalPath);
-          if (runId != _ocrRunId) return; // sudah ada _runOcr() lebih baru
-          preparedPaths.add(prepared);
-          _preparedForOcrCache[originalPath] = prepared;
-          _sessionTempFiles.add(prepared);
-        }
-      }
-
-      final text = await _ocrService.extractTextFromImages(preparedPaths);
+      final text = await _prepareAndExtractPipelined(runId);
       if (runId != _ocrRunId) return; // hasil basi — sudah ada run lebih baru
       _extractedText = text;
     } catch (_) {
@@ -714,6 +702,77 @@ class ScanController extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  /// FIX (P1 — OCR pipeline: preparation + OCR sekuensial penuh, tidak
+  /// efisien): sebelumnya SEMUA halaman di-prepare dulu satu-satu sampai
+  /// selesai (ImageEnhanceService.prepareForOcr — tiap panggilan spawn
+  /// isolate CPU-bound lewat compute()), BARU SETELAH itu
+  /// OcrService.extractTextFromImages() mulai jalan MLKit satu-satu untuk
+  /// seluruh halaman. Total waktu = sum(durasi prepare semua halaman) +
+  /// sum(durasi OCR semua halaman) secara BERURUTAN — padahal prepare
+  /// halaman i+1 sama sekali tidak bergantung pada hasil OCR halaman i,
+  /// jadi keduanya seharusnya bisa tumpang tindih (resource beda: isolate
+  /// Dart CPU-bound untuk prepare vs native ML model call untuk OCR).
+  /// Fix: pipeline satu langkah — begitu prepare halaman i selesai, mulai
+  /// OCR halaman i SEKALIGUS mulai prepare halaman i+1 di latar belakang
+  /// (tidak di-await), sehingga prepare(i+1) berjalan bersamaan dengan
+  /// ocr(i). Total waktu jadi mendekati max(sum(prepare), sum(ocr))
+  /// alih-alih sum keduanya — penghematan signifikan untuk dokumen banyak
+  /// halaman. Cache _preparedForOcrCache dan cancellation via [runId] tetap
+  /// dipertahankan persis seperti sebelumnya.
+  Future<String> _prepareAndExtractPipelined(int runId) async {
+    if (_imagePaths.isEmpty) return '';
+
+    final probe = PerfProbe('ocr_pipeline_${_imagePaths.length}pages');
+    final buffer = StringBuffer();
+    bool cancelled = false;
+    final timer = Timer(OcrService.totalTimeout, () => cancelled = true);
+
+    Future<String> prepare(String originalPath) async {
+      final cached = _preparedForOcrCache[originalPath];
+      if (cached != null) return cached;
+      final prepared = await _enhanceService.prepareForOcr(originalPath);
+      _preparedForOcrCache[originalPath] = prepared;
+      _sessionTempFiles.add(prepared);
+      return prepared;
+    }
+
+    try {
+      // Mulai prepare halaman pertama sebelum loop supaya iterasi awal
+      // tidak menunggu tanpa ada overlap sama sekali.
+      Future<String>? nextPrepared = prepare(_imagePaths[0]);
+
+      for (int i = 0; i < _imagePaths.length; i++) {
+        if (cancelled || runId != _ocrRunId) break;
+
+        final preparedPath = await nextPrepared!;
+        probe.mark('page $i: prepare done');
+        if (cancelled || runId != _ocrRunId) break;
+
+        // Mulai prepare halaman berikutnya SEKARANG (latar belakang, tidak
+        // di-await di sini) supaya tumpang tindih dengan OCR halaman ini.
+        nextPrepared = (i + 1 < _imagePaths.length)
+            ? prepare(_imagePaths[i + 1])
+            : null;
+
+        final text = await _ocrService.extractTextFromImage(preparedPath);
+        probe.mark('page $i: ocr done');
+        if (cancelled || runId != _ocrRunId) break;
+
+        if (text.isNotEmpty) {
+          if (buffer.isNotEmpty) {
+            buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
+          }
+          buffer.write(text);
+        }
+      }
+    } finally {
+      timer.cancel();
+      probe.finish();
+    }
+
+    return buffer.toString();
   }
 
   /// Clear prepared image caches to free memory

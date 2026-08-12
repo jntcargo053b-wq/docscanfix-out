@@ -1,10 +1,10 @@
 import 'dart:io';
-import 'package:crypto/crypto.dart';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../utils/file_hash.dart';
 
 class ScannerService {
   static final ScannerService _instance = ScannerService._internal();
@@ -90,16 +90,15 @@ class ScannerService {
     final seenHashes = <String>{};
     final result = <String>[];
     for (final path in paths) {
-      try {
-        final bytes = await File(path).readAsBytes();
-        final hash = md5.convert(bytes).toString();
-        if (seenHashes.add(hash)) {
-          result.add(path);
-        }
-      } catch (_) {
+      // FIX (P1 — MD5 readAsBytes() baca seluruh file ke RAM): hash lewat
+      // streaming (lihat hashFileStreaming()), bukan readAsBytes() penuh.
+      final hash = await hashFileStreaming(path);
+      if (hash == null) {
         // Jika file tidak terbaca, biarkan lolos apa adanya — biar
         // ditangani di tahap berikutnya (mis. saveImages sudah skip
         // file yang tidak ada), daripada diam-diam menghilangkan halaman.
+        result.add(path);
+      } else if (seenHashes.add(hash)) {
         result.add(path);
       }
     }

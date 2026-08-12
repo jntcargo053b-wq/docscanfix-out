@@ -12,6 +12,11 @@ class OcrService {
   // Timeout keseluruhan dokumen multi-halaman
   static const Duration _totalTimeout = Duration(seconds: 60);
 
+  /// Exposed public supaya caller lain (mis. ScanController's pipelined
+  /// prepare+OCR) bisa pakai budget total timeout yang sama tanpa duplikasi
+  /// konstanta.
+  static const Duration totalTimeout = _totalTimeout;
+
   TextRecognizer? _recognizer;
 
   TextRecognizer get _textRecognizer {
