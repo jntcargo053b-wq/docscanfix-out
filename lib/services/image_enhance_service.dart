@@ -58,6 +58,48 @@ Future<String> _flipHorizontalIsolate(String imagePath) async {
   return svc._processFlipHorizontal(imagePath);
 }
 
+// BUG (share: "file yang dikirim bukan foto" saat multi-share): akar
+// masalahnya di DocumentStorageService.saveImages() — halaman disalin ke
+// penyimpanan permanen lewat tempFile.copy(newPath) MENTAH-MENTAH, byte
+// apa adanya, dan newPath SELALU dikasih ekstensi ".jpg" TANPA PERNAH
+// mengecek apakah isi filenya benar-benar JPEG. Untuk halaman hasil scan
+// kamera (cunning_document_scanner) ini kebetulan selalu benar (memang
+// JPEG asli). Tapi untuk halaman yang ditambahkan lewat "Tambah dari
+// Galeri" (ScannerService.importFromGallery(), pakai image_picker),
+// device Android/iOS modern sering menyimpan galeri dalam format lain
+// (PNG hasil screenshot, WEBP, HEIC/HEIF dari kamera iPhone/Android
+// terbaru) — file-file ini ikut disalin apa adanya tapi diberi nama
+// "page_N.jpg" dan ditandai mimeType 'image/jpeg' di semua titik share
+// (BulkShareService, ScanController.shareImages,
+// DocumentDetailScreen._shareAsImages). Aplikasi tujuan (WhatsApp,
+// Telegram, dst) yang memvalidasi MAGIC BYTES aktual (bukan cuma percaya
+// ekstensi/mimeType yang diklaim) melihat ketidakcocokan ini dan sering
+// menampilkannya sebagai lampiran dokumen/file generik alih-alih foto,
+// atau gagal menampilkan preview — persis gejala "file yang dikirimkan
+// bukan foto" yang paling sering muncul saat share BANYAK halaman
+// sekaligus (makin banyak halaman, makin besar peluang salah satunya
+// berasal dari galeri).
+// Fix: [ensureJpeg] mengecek 3 byte pertama file (magic number JPEG:
+// 0xFF 0xD8 0xFF) TANPA baca seluruh file — kalau sudah JPEG asli
+// (mayoritas kasus: hasil scan kamera), return path apa adanya, nol
+// overhead tambahan. Kalau BUKAN JPEG, baru decode (auto-deteksi format
+// asli lewat img.decodeImage, yang otomatis mengenali PNG/WEBP/GIF/BMP
+// dari byte-nya, bukan dari ekstensi) + re-encode jadi JPEG asli di
+// background isolate (compute()) — hasilnya file YANG BENAR-BENAR JPEG,
+// sehingga ekstensi ".jpg" & mimeType 'image/jpeg' yang dipasang di
+// seluruh titik share menjadi klaim yang BENAR, bukan cuma nama.
+// Dipanggil dari DocumentStorageService.saveImages() (sebelum halaman
+// masuk penyimpanan permanen — sekali normalisasi di sini, semua share
+// berikutnya dari dokumen ini otomatis aman) dan dari
+// ScanController.shareImages() (share langsung dari sesi scan aktif,
+// SEBELUM saveImages() sempat berjalan — jalur ini butuh jaring
+// pengaman sendiri karena _imagePaths di titik itu masih path temp
+// mentah, bisa saja hasil galeri yang belum ternormalisasi).
+Future<String> _ensureJpegIsolate(String imagePath) async {
+  final svc = ImageEnhanceService();
+  return svc._processEnsureJpeg(imagePath);
+}
+
 Future<String> _cropIsolate(_CropParams p) async {
   final svc = ImageEnhanceService();
   return svc._processCrop(p);
@@ -158,6 +200,39 @@ class ImageEnhanceService {
     required double bottom,
   }) =>
       compute(_cropIsolate, _CropParams(imagePath, left, top, right, bottom));
+
+  /// Pastikan [imagePath] BENAR-BENAR file JPEG (dicek dari magic bytes,
+  /// bukan dari ekstensi nama file) — lihat catatan lengkap di
+  /// [_ensureJpegIsolate] soal bug "file yang dikirim bukan foto" saat
+  /// share. Kalau sudah JPEG asli, return path yang sama tanpa kerja
+  /// tambahan (fast path — berlaku untuk mayoritas kasus: halaman hasil
+  /// scan kamera). Kalau bukan (mis. PNG/WEBP/HEIC dari galeri), decode +
+  /// re-encode ke JPEG asli di background isolate, return path file BARU.
+  Future<String> ensureJpeg(String imagePath) async {
+    if (await _looksLikeJpeg(imagePath)) return imagePath;
+    return compute(_ensureJpegIsolate, imagePath);
+  }
+
+  /// Cek magic number JPEG (0xFF 0xD8 0xFF) dari 3 byte pertama saja —
+  /// tidak baca seluruh file, jauh lebih murah daripada decode penuh.
+  /// Kegagalan baca (file hilang, dst) dianggap "bukan JPEG" supaya
+  /// caller jatuh ke jalur decode+encode yang punya penanganan error
+  /// sendiri (lempar exception yang jelas), bukan diam-diam lolos.
+  Future<bool> _looksLikeJpeg(String imagePath) async {
+    RandomAccessFile? raf;
+    try {
+      raf = await File(imagePath).open();
+      final header = await raf.read(3);
+      return header.length == 3 &&
+          header[0] == 0xFF &&
+          header[1] == 0xD8 &&
+          header[2] == 0xFF;
+    } catch (_) {
+      return false;
+    } finally {
+      await raf?.close();
+    }
+  }
 
   // ── INTERNAL (dipanggil dari isolate) ──
   //
@@ -558,6 +633,21 @@ class ImageEnhanceService {
     }
 
     return _saveTempNamed(image, 'compressed', quality: p.quality);
+  }
+
+  /// Decode format asli apa pun yang dikenali package:image (PNG, WEBP,
+  /// GIF, BMP, dst — dideteksi dari byte, bukan ekstensi) lalu re-encode
+  /// jadi JPEG asli. Dipanggil dari isolate lewat [ensureJpeg]/
+  /// [_ensureJpegIsolate] — lihat catatan lengkap di sana. Quality 92
+  /// (sama seperti _saveTemp) supaya konversi format ini sendiri tidak
+  /// jadi sumber degradasi kualitas yang terlihat.
+  Future<String> _processEnsureJpeg(String imagePath) async {
+    final bytes = await File(imagePath).readAsBytes();
+    final image = img.decodeImage(bytes);
+    if (image == null) {
+      throw Exception('Gagal decode gambar (format tidak dikenali): $imagePath');
+    }
+    return _saveTempNamed(image, 'normalized', quality: 92);
   }
 
   /// FIX (P2 — Thumbnail square crop): sebelumnya copyResizeCropSquare()

@@ -23,9 +23,24 @@ class ScanPreview extends StatelessWidget {
     this.onTap,
   });
 
+  // PERF FIX: sebelumnya Image.file(file, fit: BoxFit.cover) tanpa
+  // cacheWidth/cacheHeight — thumbnail carousel ini dipakai selama Scan
+  // Flow AKTIF, saat imagePath masih file kamera resolusi asli (bisa
+  // 12–48 MP, belum lewat ImageEnhanceService.prepareForPdf/compress).
+  // Kotak tampilnya cuma 110x160dp, tapi decoder tetap decode piksel
+  // penuh tiap kali widget ini dibangun (mis. tiap scroll carousel di
+  // ScanPageCarousel, atau tiap kali daftar halaman berubah) — pola bug
+  // yang sama seperti yang sudah difix di DocumentCard._buildThumbnail()
+  // dan ImageGrid, cuma kelewat di sini.
+  // Fix: cacheWidth membatasi decoder cuma memuat piksel selebar target
+  // tampil (dikali devicePixelRatio), sama seperti pola yang sudah ada di
+  // DocumentCard.
   @override
   Widget build(BuildContext context) {
     final file = File(imagePath);
+    final dpr = MediaQuery.of(context).devicePixelRatio;
+    final cacheW = (110 * dpr).round();
+    final cacheH = (160 * dpr).round();
     return Stack(
       children: [
         GestureDetector(
@@ -40,7 +55,12 @@ class ScanPreview extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(9),
               child: file.existsSync()
-                  ? Image.file(file, fit: BoxFit.cover)
+                  ? Image.file(
+                      file,
+                      fit: BoxFit.cover,
+                      cacheWidth: cacheW,
+                      cacheHeight: cacheH,
+                    )
                   : Container(
                       color: AppTheme.surface,
                       child: const Center(

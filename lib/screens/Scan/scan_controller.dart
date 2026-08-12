@@ -513,6 +513,20 @@ class ScanController extends ChangeNotifier {
   /// saveDocument()) supaya tombol ikut ter-disable, dan kembalikan ke
   /// ready setelah selesai (berhasil maupun gagal) karena share tidak
   /// mengubah data gambar yang ada.
+  /// BUG FIX (share: "file yang dikirim bukan foto"): berbeda dari
+  /// DocumentStorageService.saveImages() (halaman dokumen yang SUDAH
+  /// tersimpan permanen), method ini share LANGSUNG dari _imagePaths —
+  /// path temp yang bisa saja berasal dari "Tambah dari Galeri"
+  /// (ScannerService.importFromGallery()) dan BELUM PERNAH lewat
+  /// normalisasi format apa pun, karena saveImages() belum tentu sudah
+  /// dipanggil di titik ini (share bisa ditekan sebelum "Simpan"). Kalau
+  /// halaman itu aslinya PNG/WEBP/HEIC, mimeType 'image/jpeg' +
+  /// nama ".jpg" yang di-hardcode di bawah jadi klaim yang salah — sama
+  /// gejalanya dengan bug yang difix di saveImages(). Fix: normalisasi
+  /// tiap halaman lewat ImageEnhanceService.ensureJpeg() SEBELUM dibuat
+  /// XFile — fast path (tanpa decode) untuk halaman yang memang sudah
+  /// JPEG asli (mayoritas: hasil scan kamera), cuma halaman dari galeri
+  /// yang bukan JPEG yang benar-benar dikonversi.
   Future<void> shareImages() async {
     if (_imagePaths.isEmpty || isProcessing) return;
     _setStatus(ScanStatus.processing);
@@ -522,14 +536,33 @@ class ScanController extends ChangeNotifier {
       final rawTitle = titleController.text.trim();
       final title = rawTitle.isEmpty ? _defaultTitle() : rawTitle;
       final safeTitle = _safeFileName(title);
-      final files = <XFile>[
-        for (int i = 0; i < _imagePaths.length; i++)
-          XFile(
-            _imagePaths[i],
-            mimeType: 'image/jpeg',
-            name: '${safeTitle}_hal${i + 1}.jpg',
-          ),
-      ];
+      final files = <XFile>[];
+      for (int i = 0; i < _imagePaths.length; i++) {
+        final normalizedPath =
+            await _enhanceService.ensureJpeg(_imagePaths[i]);
+        // Catatan: kalau ensureJpeg() sempat membuat file baru (halaman
+        // ini bukan JPEG asli), file barunya TIDAK dihapus eksplisit di
+        // sini — OS/aplikasi tujuan mungkin masih membaca file lewat
+        // share sheet sesaat setelah Future ini selesai (sama seperti
+        // alasan dispose() ImageEditorScreen menghindari hapus dini).
+        // Dibiarkan ikut dibersihkan oleh
+        // ScannerService.purgeStaleTempFiles() (jaring pengaman umum
+        // untuk semua file temp app ini, jalan tiap startup) alih-alih
+        // dihapus segera setelah shareXFiles() selesai.
+        // FEATURE (hilangkan label "Hal N" dari nama file saat share):
+        // sebelumnya nama file selalu diakhiri "_hal${i+1}.jpg" — kalau
+        // aplikasi tujuan gagal mengenali lampiran sebagai foto (mis.
+        // sebelum fix mimeType di atas) dan menampilkannya sebagai
+        // dokumen/file biasa, label ini ikut terlihat oleh penerima.
+        // Nomor urut tetap dipertahankan (perlu untuk keunikan nama antar
+        // halaman dalam satu sesi share — lihat catatan bentrok nama di
+        // BulkShareService.shareAsImages), cuma kata "hal" yang dibuang.
+        files.add(XFile(
+          normalizedPath,
+          mimeType: 'image/jpeg',
+          name: '${safeTitle}_${i + 1}.jpg',
+        ));
+      }
       await Share.shareXFiles(files, subject: title, text: title);
     } finally {
       _setStatus(ScanStatus.ready);

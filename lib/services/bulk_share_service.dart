@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:share_plus/share_plus.dart';
 import '../models/scanned_document.dart';
 import 'document_storage_service.dart';
+import 'image_enhance_service.dart';
 import 'pdf_service.dart';
 
 /// Batas aman untuk sekali share. Ini bukan batas keras dari Android sendiri
@@ -54,13 +55,16 @@ typedef DocumentUpdatedCallback = void Function(ScannedDocument updated);
 class BulkShareService {
   final PdfService _pdfService;
   final DocumentStorageService _storageService;
+  final ImageEnhanceService _enhanceService;
   bool _cancelRequested = false;
 
   BulkShareService({
     PdfService? pdfService,
     DocumentStorageService? storageService,
+    ImageEnhanceService? enhanceService,
   })  : _pdfService = pdfService ?? PdfService(),
-        _storageService = storageService ?? DocumentStorageService();
+        _storageService = storageService ?? DocumentStorageService(),
+        _enhanceService = enhanceService ?? ImageEnhanceService();
 
   /// Minta pembatalan; dicek di antara setiap file/dokumen yang diproses
   /// (bukan mid-file), supaya tidak meninggalkan PDF setengah jadi.
@@ -141,6 +145,21 @@ class BulkShareService {
     // semua lampiran yang namanya bentrok berakhir jadi gambar yang sama.
     // Fix: tambahkan nomor urut GLOBAL (lintas dokumen) di depan nama file,
     // supaya nama selalu unik apa pun judul dokumennya.
+    //
+    // FEATURE (hilangkan label "Hal N" dari nama file saat share): nomor
+    // urut GLOBAL di atas SUDAH cukup untuk menjamin nama unik antar
+    // semua halaman dari semua dokumen terpilih — suffix "_hal${i+1}"
+    // cuma dekoratif, bukan syarat keunikan, jadi aman dibuang tanpa
+    // menghidupkan lagi bug bentrok nama yang dijelaskan di atas.
+    //
+    // BUG FIX (share: "file yang dikirim bukan foto"): doc.imagePaths di
+    // sini adalah halaman yang SUDAH tersimpan permanen — untuk dokumen
+    // yang disimpan SETELAH fix di DocumentStorageService.saveImages(),
+    // halaman ini dijamin JPEG asli. Tapi dokumen yang disimpan SEBELUM
+    // fix itu (data lama di HP user) masih bisa punya "page_N.jpg" yang
+    // isinya sebenarnya PNG/WEBP/HEIC dari galeri. ensureJpeg() di sini
+    // jadi jaring pengaman kedua untuk data lama itu — fast path (tanpa
+    // decode) untuk halaman yang memang sudah JPEG asli.
     int globalIndex = 0;
     for (final doc in validDocs) {
       for (int i = 0; i < doc.imagePaths.length; i++) {
@@ -148,10 +167,11 @@ class BulkShareService {
         _checkCancelled();
         globalIndex++;
         if (await File(p).exists()) {
+          final normalizedPath = await _enhanceService.ensureJpeg(p);
           files.add(XFile(
-            p,
+            normalizedPath,
             mimeType: 'image/jpeg',
-            name: '${globalIndex}_${_safeFileName(doc.title)}_hal${i + 1}.jpg',
+            name: '${globalIndex}_${_safeFileName(doc.title)}.jpg',
           ));
         }
         done++;
@@ -163,11 +183,13 @@ class BulkShareService {
       throw Exception('Tidak ada gambar yang tersedia dari dokumen terpilih');
     }
 
-    await Share.shareXFiles(
-      files,
-      subject: '${docs.length} dokumen',
-      text: '${docs.length} dokumen (${files.length} halaman total)',
-    );
+    // FEATURE (hilangkan caption "X dokumen (Y halaman total)" saat
+    // share): subject/text sebelumnya menyisipkan ringkasan jumlah
+    // dokumen/halaman ke pesan/caption yang ikut terkirim ke penerima —
+    // dianggap noise yang tidak perlu (penerima cukup melihat lampiran
+    // foto itu sendiri). Dibiarkan null: share_plus/Android tidak
+    // memaksa ada subject/text untuk lampiran gambar.
+    await Share.shareXFiles(files);
   }
 
   /// Bersihkan judul dokumen supaya aman dipakai sebagai nama file
@@ -266,10 +288,9 @@ class BulkShareService {
       throw Exception('Tidak ada PDF yang bisa dibagikan');
     }
 
-    await Share.shareXFiles(
-      files,
-      subject: '${docs.length} dokumen',
-      text: '${docs.length} dokumen sebagai PDF',
-    );
+    // FEATURE (hilangkan caption "X dokumen sebagai PDF" saat share):
+    // sama seperti shareAsImages() — caption ringkasan jumlah dokumen
+    // dianggap noise, dibiarkan null.
+    await Share.shareXFiles(files);
   }
 }

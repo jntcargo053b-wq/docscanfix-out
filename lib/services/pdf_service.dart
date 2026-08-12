@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -8,6 +9,48 @@ import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:open_file/open_file.dart';
+
+// PERF FIX: _addImagePage() sebelumnya memanggil img.decodeImage() /
+// img.copyResize() / img.encodeJpg() LANGSUNG di isolate pemanggil
+// (main/UI isolate untuk semua 3 caller: ScanController.exportPdf(),
+// BulkShareService.shareAsPdf(), DocumentDetailScreen._exportAsPdf()).
+// Operasi img.* ini CPU-bound & sinkron — sama beratnya dengan operasi
+// yang di ImageEnhanceService SUDAH konsisten dibungkus compute(), tapi
+// di sini kelewat. Untuk dokumen banyak halaman dari foto kamera
+// resolusi asli, generatePdf()/generatePdfChunked() bisa nge-freeze UI
+// thread selama proses decode+resize+encode tiap halaman berlangsung.
+// Fix: pindahkan bagian decode/resize/encode ke top-level function +
+// compute(), pola yang sama persis dengan ImageEnhanceService. Hasil
+// (bytes JPEG final) yang balik ke main isolate baru dibungkus jadi
+// pw.MemoryImage & ditambahkan ke pw.Document — bagian ini TETAP di main
+// isolate karena butuh objek pdf.Document yang sama dipakai lintas
+// halaman (pw.Document bukan objek yang aman dikirim lewat isolate).
+class _PageImageParams {
+  final Uint8List rawBytes;
+  final bool skipDownsize;
+  final int maxDimension;
+  final int quality;
+  _PageImageParams(
+      this.rawBytes, this.skipDownsize, this.maxDimension, this.quality);
+}
+
+Uint8List _processPageImage(_PageImageParams p) {
+  if (p.skipDownsize) return p.rawBytes;
+
+  final decoded = img.decodeImage(p.rawBytes);
+  if (decoded == null) return p.rawBytes;
+  if (decoded.width <= p.maxDimension && decoded.height <= p.maxDimension) {
+    return p.rawBytes;
+  }
+
+  final resized = img.copyResize(
+    decoded,
+    width: decoded.width > decoded.height ? p.maxDimension : -1,
+    height: decoded.height >= decoded.width ? p.maxDimension : -1,
+    interpolation: img.Interpolation.linear,
+  );
+  return Uint8List.fromList(img.encodeJpg(resized, quality: p.quality));
+}
 
 class PdfService {
   static final PdfService _instance = PdfService._internal();
@@ -246,22 +289,20 @@ class PdfService {
     int quality = 85,
   }) async {
     final rawBytes = await File(imagePath).readAsBytes();
-    Uint8List imageBytes = rawBytes;
 
-    if (!skipDownsize) {
-      final decoded = img.decodeImage(rawBytes);
-      if (decoded != null &&
-          (decoded.width > maxDimension || decoded.height > maxDimension)) {
-        final resized = img.copyResize(
-          decoded,
-          width: decoded.width > decoded.height ? maxDimension : -1,
-          height: decoded.height >= decoded.width ? maxDimension : -1,
-          interpolation: img.Interpolation.linear,
-        );
-        imageBytes =
-            Uint8List.fromList(img.encodeJpg(resized, quality: quality));
-      }
-    }
+    // PERF FIX: decode+resize+encode dipindah ke background isolate lewat
+    // compute() — lihat catatan lengkap di _processPageImage() &
+    // _PageImageParams di atas. skipDownsize (caller sudah pre-process,
+    // mis. ScanController.exportPdf() lewat ImageEnhanceService.
+    // prepareForPdf()) tetap dicek DI SINI dulu supaya path itu tidak
+    // ikut bayar overhead spawn isolate untuk sekadar pass-through bytes
+    // tanpa kerja apa pun.
+    final imageBytes = skipDownsize
+        ? rawBytes
+        : await compute(
+            _processPageImage,
+            _PageImageParams(rawBytes, skipDownsize, maxDimension, quality),
+          );
 
     final image = pw.MemoryImage(imageBytes);
     pdf.addPage(

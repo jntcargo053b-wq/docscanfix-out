@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
+import '../services/image_enhance_service.dart';
 import '../services/pdf_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/image_grid.dart';
@@ -19,6 +20,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   late ScannedDocument _doc;
   final _storageService = DocumentStorageService();
   final _pdfService = PdfService();
+  final _enhanceService = ImageEnhanceService();
   bool _isSharing = false;
   bool _isExportingPdf = false;
 
@@ -41,16 +43,30 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       // aslinya di storage ("page_1.jpg", "page_2.jpg", dst — lihat
       // DocumentStorageService.saveImages) alih-alih judul dokumen. Judul
       // tidak kepakai sama sekali. Sekarang dibangun dari judul dokumen +
-      // nomor halaman, sama seperti pola di BulkShareService & ScanController.
+      // nomor urut, sama seperti pola di BulkShareService & ScanController.
+      //
+      // FEATURE (hilangkan label "Hal N" dari nama file saat share):
+      // suffix "_hal${i+1}" sebelumnya cuma dekoratif — nomor urut biasa
+      // sudah cukup untuk keunikan nama antar halaman dokumen ini.
+      //
+      // BUG FIX (share: "file yang dikirim bukan foto"): _doc.imagePaths
+      // untuk dokumen yang disimpan SEBELUM fix di
+      // DocumentStorageService.saveImages() masih bisa berupa
+      // PNG/WEBP/HEIC yang cuma diberi nama "page_N.jpg" — mimeType
+      // 'image/jpeg' yang di-hardcode di bawah jadi klaim salah, dan
+      // aplikasi tujuan sering menampilkannya sebagai file/dokumen
+      // generik, bukan foto. ensureJpeg() jadi jaring pengaman untuk
+      // dokumen lama itu (fast path, tanpa decode, untuk halaman yang
+      // memang sudah JPEG asli — lihat ImageEnhanceService.ensureJpeg()).
       final safeTitle = _safeFileName(_doc.title);
       final imagePaths =
           _doc.imagePaths.where((p) => File(p).existsSync()).toList();
       final existingFiles = <XFile>[
         for (int i = 0; i < imagePaths.length; i++)
           XFile(
-            imagePaths[i],
+            await _enhanceService.ensureJpeg(imagePaths[i]),
             mimeType: 'image/jpeg',
-            name: '${safeTitle}_hal${i + 1}.jpg',
+            name: '${safeTitle}_${i + 1}.jpg',
           ),
       ];
 
@@ -59,11 +75,12 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         return;
       }
 
-      await Share.shareXFiles(
-        existingFiles,
-        subject: _doc.title,
-        text: 'Dokumen: ${_doc.title}',
-      );
+      // FEATURE (hilangkan caption "Dokumen: <judul>" saat share): subject
+      // tetap dipertahankan (judul dokumen di kolom subject email/dsb
+      // masih berguna sebagai identitas), tapi text caption yang
+      // mengulang "Dokumen: " dihapus — dianggap noise di atas subject
+      // yang sudah ada.
+      await Share.shareXFiles(existingFiles, subject: _doc.title);
     } catch (e) {
       _showError('Gagal berbagi gambar: $e');
     } finally {

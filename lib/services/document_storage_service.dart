@@ -387,13 +387,40 @@ class DocumentStorageService {
           throw Exception('Halaman ${i + 1} tidak ditemukan di penyimpanan sementara.');
         }
 
+        // BUG FIX (share: "file yang dikirim bukan foto"): sebelumnya
+        // tempFile.copy(newPath) menyalin byte APA ADANYA lalu memberi
+        // nama "page_N.jpg" tanpa pernah mengecek isi filenya benar JPEG
+        // atau bukan — halaman dari "Tambah dari Galeri" yang aslinya
+        // PNG/WEBP/HEIC ikut disalin mentah tapi diberi label ".jpg" +
+        // mimeType 'image/jpeg' di semua titik share. Aplikasi tujuan
+        // yang memvalidasi magic bytes aktual (bukan cuma percaya nama
+        // file) sering menampilkan ini sebagai dokumen/file generik,
+        // bukan foto. Lihat catatan lengkap di
+        // ImageEnhanceService.ensureJpeg()/_processEnsureJpeg().
+        // Fix: normalisasi ke JPEG asli SEBELUM disalin ke penyimpanan
+        // permanen — sekali di sini, semua share berikutnya dari
+        // dokumen ini (BulkShareService, DocumentDetailScreen) otomatis
+        // aman tanpa perlu tahu format sumbernya. Untuk halaman yang
+        // memang sudah JPEG asli (mayoritas — hasil scan kamera),
+        // ensureJpeg() adalah fast path (cek 3 byte, tanpa decode),
+        // jadi tidak ada biaya tambahan berarti untuk kasus normal.
+        final normalizedPath = await ImageEnhanceService().ensureJpeg(rawPath);
+
         final newPath = '${docDir.path}/page_${i + 1}.jpg';
         try {
-          await tempFile.copy(newPath);
+          await File(normalizedPath).copy(newPath);
         } catch (e) {
           // Storage penuh / permission I/O — gagalkan seluruh penyimpanan,
           // jangan lewati halaman ini.
           throw Exception('Gagal menyalin halaman ${i + 1}: $e');
+        } finally {
+          // File hasil normalisasi cuma perantara (beda dari rawPath asli
+          // yang milik caller/scanner plugin) — bersihkan supaya tidak
+          // jadi sampah temp, kecuali memang tidak ada file baru yang
+          // dibuat (normalizedPath == rawPath, sudah JPEG dari awal).
+          if (normalizedPath != rawPath) {
+            _deleteFileInBackground(normalizedPath);
+          }
         }
         savedPaths.add(newPath);
         // Penomoran sekarang selalu 1:1 dengan tempPaths (i + 1), tidak ada
