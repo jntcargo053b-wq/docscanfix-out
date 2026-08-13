@@ -1,10 +1,42 @@
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../utils/file_hash.dart';
+
+// PERF FIX (review keseluruhan — dedupe baca seluruh gambar + MD5 di UI
+// isolate): _dedupeByContent() sebelumnya melakukan File.readAsBytes()
+// (bisa beberapa MB per halaman kamera resolusi asli) DAN md5.convert()
+// (CPU-bound, sinkron) langsung di isolate pemanggil — yaitu UI isolate,
+// karena scanDocument() dipanggil langsung dari ScanController tanpa
+// pembungkus isolate apa pun. Untuk sesi scan dengan banyak halaman
+// (sampai 10, lihat noOfPages di scanDocument()), ini berarti UI thread
+// nge-freeze selagi membaca+hash puluhan MB total, PERSIS setelah user
+// selesai scan — momen yang seharusnya terasa instan (langsung lanjut ke
+// preview), bukan malah nge-lag.
+// Fix: pola sama seperti ImageEnhanceService/PdfService — pindahkan
+// SELURUH kerja baca+hash ke satu compute() call (bukan compute() per
+// file, supaya tidak bayar overhead spawn isolate berkali-kali). Hasil
+// (list hash, urutan sama dengan paths) dipakai kembali di UI isolate
+// cuma untuk logika dedupe itu sendiri (Set.add — murah, bukan CPU-bound).
+Future<List<String?>> _hashFilesForDedupe(List<String> paths) async {
+  final hashes = <String?>[];
+  for (final path in paths) {
+    try {
+      final bytes = await File(path).readAsBytes();
+      hashes.add(md5.convert(bytes).toString());
+    } catch (_) {
+      // File tidak terbaca — null berarti "anggap unik", biar lolos apa
+      // adanya dan ditangani di tahap berikutnya (mis. saveImages sudah
+      // skip file yang tidak ada), bukan diam-diam dihilangkan.
+      hashes.add(null);
+    }
+  }
+  return hashes;
+}
 
 class ScannerService {
   static final ScannerService _instance = ScannerService._internal();
@@ -86,20 +118,17 @@ class ScannerService {
   /// Buang halaman dengan isi file identik, pertahankan urutan kemunculan
   /// pertama. Dipakai untuk menangkis bug plugin scanner yang kadang
   /// mengembalikan halaman kembar.
+  ///
+  /// Lihat catatan lengkap soal PERF FIX (baca+hash dipindah ke
+  /// background isolate) di [_hashFilesForDedupe] di atas.
   Future<List<String>> _dedupeByContent(List<String> paths) async {
+    final hashes = await compute(_hashFilesForDedupe, paths);
     final seenHashes = <String>{};
     final result = <String>[];
-    for (final path in paths) {
-      // FIX (P1 — MD5 readAsBytes() baca seluruh file ke RAM): hash lewat
-      // streaming (lihat hashFileStreaming()), bukan readAsBytes() penuh.
-      final hash = await hashFileStreaming(path);
-      if (hash == null) {
-        // Jika file tidak terbaca, biarkan lolos apa adanya — biar
-        // ditangani di tahap berikutnya (mis. saveImages sudah skip
-        // file yang tidak ada), daripada diam-diam menghilangkan halaman.
-        result.add(path);
-      } else if (seenHashes.add(hash)) {
-        result.add(path);
+    for (int i = 0; i < paths.length; i++) {
+      final hash = hashes[i];
+      if (hash == null || seenHashes.add(hash)) {
+        result.add(paths[i]);
       }
     }
     return result;

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'services/document_storage_service.dart';
 import 'services/scanner_service.dart';
 import 'theme/app_theme.dart';
 
@@ -12,6 +13,17 @@ void main() {
   // app ikut tertunda oleh listing seluruh isi temp dir yang bisa besar,
   // padahal ini murni housekeeping latar belakang.
   unawaited(ScannerService.purgeStaleTempFiles());
+  // BUG FIX (migrasi data lama — share: "file yang dikirim bukan foto"):
+  // fire-and-forget sama seperti purgeStaleTempFiles() di atas — migrasi
+  // ini bisa membaca+menormalisasi banyak halaman untuk koleksi dokumen
+  // besar, TIDAK boleh menunda UI pertama tampil. Aman jalan di
+  // background sambil user sudah mulai pakai app: titik share sudah
+  // punya jaring pengaman ensureJpeg() sendiri (lihat
+  // BulkShareService/ScanController/DocumentDetailScreen), jadi share
+  // tetap benar walau migrasi ini belum selesai/belum sempat jalan sama
+  // sekali di sesi ini — lihat catatan lengkap di
+  // DocumentStorageService.migrateNormalizeImageFormats().
+  unawaited(DocumentStorageService().migrateNormalizeImageFormats());
   runApp(const MyApp());
 }
 

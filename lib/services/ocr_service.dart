@@ -12,23 +12,43 @@ class OcrService {
   // Timeout keseluruhan dokumen multi-halaman
   static const Duration _totalTimeout = Duration(seconds: 60);
 
-  /// Exposed public supaya caller lain (mis. ScanController's pipelined
-  /// prepare+OCR) bisa pakai budget total timeout yang sama tanpa duplikasi
-  /// konstanta.
-  static const Duration totalTimeout = _totalTimeout;
+  // PERF FIX (OCR multi-halaman terasa lambat): extractTextFromImages()
+  // sebelumnya proses halaman STRICT SEQUENTIAL — satu TextRecognizer
+  // dipakai bergantian, halaman ke-N nunggu halaman ke-(N-1) selesai total
+  // sebelum mulai. Untuk dokumen 20-50 halaman, total waktu = jumlah waktu
+  // SEMUA halaman, padahal saveDocument() bisa saja nunggu ini kalau user
+  // tekan "Simpan" sebelum OCR background selesai (lihat _runOcr() di
+  // ScanController).
+  // Fix: pool 2 instance TextRecognizer TERPISAH, proses 2 halaman
+  // BERSAMAAN per giliran (Future.wait) — tiap instance tetap dipanggil
+  // SATU per satu ke dirinya sendiri (tidak ada 2 processImage() bersamaan
+  // di instance recognizer yang SAMA, yang tidak terjamin aman lewat
+  // platform channel ML Kit), tapi 2 instance berbeda memang didesain
+  // untuk dipakai independen/paralel. Ini murni soal THROUGHPUT (jumlah
+  // halaman per detik), BUKAN soal resolusi/kualitas gambar — akurasi per
+  // halaman tidak berubah sama sekali (ImageEnhanceService.prepareForOcr()
+  // yang menentukan itu, downsize 1600px + grayscale, tidak disentuh).
+  // Ukuran pool sengaja kecil (2, bukan lebih) — ML Kit text recognition
+  // sudah cukup berat per panggilan (CPU/NPU-bound di native), pool besar
+  // berisiko malah memperlambat (kontensi resource) alih-alih mempercepat,
+  // apalagi di HP kelas menengah-bawah yang jadi target app ini.
+  static const int _poolSize = 2;
+  final List<TextRecognizer?> _recognizers = List<TextRecognizer?>.filled(_poolSize, null);
 
-  TextRecognizer? _recognizer;
-
-  TextRecognizer get _textRecognizer {
-    _recognizer ??= TextRecognizer(script: TextRecognitionScript.latin);
-    return _recognizer!;
+  TextRecognizer _recognizerAt(int slot) {
+    return _recognizers[slot] ??= TextRecognizer(script: TextRecognitionScript.latin);
   }
 
+  TextRecognizer get _textRecognizer => _recognizerAt(0);
+
   /// Extract text from a single image, dengan timeout [_perPageTimeout].
-  Future<String> extractTextFromImage(String imagePath) async {
+  /// [slot] menentukan instance TextRecognizer mana dari pool yang dipakai
+  /// (default 0) — dipakai oleh [extractTextFromImages] untuk memproses
+  /// beberapa halaman paralel tanpa berbagi instance yang sama.
+  Future<String> extractTextFromImage(String imagePath, {int slot = 0}) async {
     try {
       final inputImage = InputImage.fromFile(File(imagePath));
-      final RecognizedText recognizedText = await _textRecognizer
+      final RecognizedText recognizedText = await _recognizerAt(slot)
           .processImage(inputImage)
           .timeout(
             _perPageTimeout,
@@ -48,25 +68,47 @@ class OcrService {
   /// Extract text dari banyak halaman, dengan total timeout [_totalTimeout].
   ///
   /// Menggunakan flag [cancelled] sebagai cancellation token. Setelah timeout,
-  /// flag di-set true sehingga iterasi berikutnya di loop langsung skip — loop
+  /// flag di-set true sehingga batch berikutnya di loop langsung skip — loop
   /// tidak terus berjalan di background setelah fungsi ini return.
+  ///
+  /// PERF FIX (pool 2 recognizer — lihat catatan lengkap di [_poolSize]):
+  /// diproses [_poolSize] halaman per giliran secara PARALEL (Future.wait),
+  /// masing-masing di instance TextRecognizer terpisah dari pool. Urutan
+  /// hasil di [buffer] tetap sesuai urutan halaman asli (Future.wait
+  /// mengembalikan hasil dalam urutan input, terlepas dari urutan
+  /// selesainya) — nomor "Halaman N" di output tidak berubah perilakunya
+  /// sama sekali dibanding sebelumnya, cuma throughput-nya yang naik.
+  ///
+  /// BUG FIX sekalian (satu halaman error dulu menggagalkan SISA dokumen):
+  /// sebelumnya exception non-timeout dari satu halaman (mis. error native
+  /// ML Kit) lolos ke catch() di luar loop dan MENGHENTIKAN seluruh proses
+  /// — halaman-halaman setelahnya tidak pernah di-OCR meski filenya baik-
+  /// baik saja. Sekarang tiap panggilan individual dibungkus try/catch
+  /// sendiri — satu halaman gagal cuma jadi teks kosong untuk halaman itu,
+  /// halaman lain tetap diproses.
   Future<String> extractTextFromImages(List<String> imagePaths) async {
-    final buffer = StringBuffer();
+    final results = List<String>.filled(imagePaths.length, '');
     bool cancelled = false;
 
     final timer = Timer(_totalTimeout, () { cancelled = true; });
 
     try {
-      for (int i = 0; i < imagePaths.length; i++) {
-        if (cancelled) break;                    // berhenti sebelum halaman baru dimulai
+      for (int start = 0; start < imagePaths.length; start += _poolSize) {
+        if (cancelled) break; // berhenti sebelum batch baru dimulai
 
-        final text = await extractTextFromImage(imagePaths[i]);
+        final end = (start + _poolSize < imagePaths.length)
+            ? start + _poolSize
+            : imagePaths.length;
 
-        if (cancelled) break;                    // berhenti setelah await selesai
+        final batchResults = await Future.wait([
+          for (int i = start; i < end; i++)
+            _safeExtract(imagePaths[i], slot: i - start),
+        ]);
 
-        if (text.isNotEmpty) {
-          if (buffer.isNotEmpty) buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
-          buffer.write(text);
+        if (cancelled) break; // berhenti setelah batch selesai
+
+        for (int i = start; i < end; i++) {
+          results[i] = batchResults[i - start];
         }
       }
     } catch (_) {
@@ -75,7 +117,28 @@ class OcrService {
       timer.cancel();
     }
 
+    // Susun buffer dari [results] (urutan halaman asli, terlepas dari
+    // urutan selesainya tiap batch) — halaman yang belum sempat diproses
+    // (mis. karena cancelled sebelum batch-nya mulai) tetap '' bawaan.
+    final buffer = StringBuffer();
+    for (int i = 0; i < results.length; i++) {
+      if (results[i].isEmpty) continue;
+      if (buffer.isNotEmpty) buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
+      buffer.write(results[i]);
+    }
     return buffer.toString();
+  }
+
+  /// Bungkus [extractTextFromImage] supaya error non-timeout dari SATU
+  /// halaman tidak ikut melempar ke [Future.wait] pemanggil (yang akan
+  /// membatalkan seluruh batch, termasuk halaman lain yang baik-baik
+  /// saja) — lihat catatan lengkap di [extractTextFromImages].
+  Future<String> _safeExtract(String imagePath, {required int slot}) async {
+    try {
+      return await extractTextFromImage(imagePath, slot: slot);
+    } catch (_) {
+      return '';
+    }
   }
 
   /// Extract structured text with block and line positions.
@@ -108,8 +171,10 @@ class OcrService {
   }
 
   void dispose() {
-    _recognizer?.close();
-    _recognizer = null;
+    for (int i = 0; i < _recognizers.length; i++) {
+      _recognizers[i]?.close();
+      _recognizers[i] = null;
+    }
   }
 }
 

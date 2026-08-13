@@ -9,7 +9,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:open_file/open_file.dart';
-import '../utils/perf_probe.dart';
 
 // PERF FIX: _addImagePage() sebelumnya memanggil img.decodeImage() /
 // img.copyResize() / img.encodeJpg() LANGSUNG di isolate pemanggil
@@ -136,60 +135,48 @@ class PdfService {
     // bukan tanggung jawab generatePdf() untuk mengubahnya lagi di sini).
     final tier = skipDownsize ? null : _pageBudgetTier(imagePaths.length);
 
-    final probe = PerfProbe('generatePdf_${imagePaths.length}pages'
-        '${skipDownsize ? "_skipDownsize" : "_tier${tier!.maxDimension}q${tier.quality}"}');
+    for (final path in imagePaths) {
+      final file = File(path);
+      if (!await file.exists()) continue;
 
-    try {
-      for (int i = 0; i < imagePaths.length; i++) {
-        final path = imagePaths[i];
-        final file = File(path);
-        if (!await file.exists()) continue;
-
-        // Baca → buat page → biarkan imageBytes keluar scope agar GC bisa bebaskan
-        await _addImagePage(
-          pdf,
-          path,
-          pageFormat,
-          skipDownsize: skipDownsize,
-          maxDimension: tier?.maxDimension ?? 1920,
-          quality: tier?.quality ?? 85,
-        );
-        probe.mark('page $i added');
-      }
-
-      if (includeTextLayer && (extractedText?.isNotEmpty ?? false)) {
-        pdf.addPage(
-          pw.MultiPage(
-            pageFormat: pageFormat,
-            margin: const pw.EdgeInsets.all(32),
-            build: (_) => [
-              pw.Text(
-                '$title — Hasil OCR',
-                style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
-              ),
-              pw.SizedBox(height: 12),
-              pw.Text(extractedText!, style: const pw.TextStyle(fontSize: 11)),
-            ],
-          ),
-        );
-      }
-
-      final dir = await getApplicationDocumentsDirectory();
-      final pdfDir = Directory('${dir.path}/DocScan');
-      await pdfDir.create(recursive: true);
-
-      final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
-      final fileName = '${safeTitle}_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final outFile = File('${pdfDir.path}/$fileName');
-      probe.mark('before pdf.save() — titik peak RAM: closure menahan semua halaman');
-      final bytes = await pdf.save();
-      probe.mark('pdf.save() done (${(bytes.length / (1024 * 1024)).toStringAsFixed(1)}MB)');
-      await outFile.writeAsBytes(bytes);
-
-      return outFile.path;
-    } finally {
-      probe.finish();
+      // Baca → buat page → biarkan imageBytes keluar scope agar GC bisa bebaskan
+      await _addImagePage(
+        pdf,
+        path,
+        pageFormat,
+        skipDownsize: skipDownsize,
+        maxDimension: tier?.maxDimension ?? 1920,
+        quality: tier?.quality ?? 85,
+      );
     }
+
+    if (includeTextLayer && (extractedText?.isNotEmpty ?? false)) {
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: pageFormat,
+          margin: const pw.EdgeInsets.all(32),
+          build: (_) => [
+            pw.Text(
+              '$title — Hasil OCR',
+              style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 12),
+            pw.Text(extractedText!, style: const pw.TextStyle(fontSize: 11)),
+          ],
+        ),
+      );
+    }
+
+    final dir = await getApplicationDocumentsDirectory();
+    final pdfDir = Directory('${dir.path}/DocScan');
+    await pdfDir.create(recursive: true);
+
+    final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
+    final fileName = '${safeTitle}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+    final outFile = File('${pdfDir.path}/$fileName');
+    await outFile.writeAsBytes(await pdf.save());
+
+    return outFile.path;
   }
 
   /// Anggaran ukuran per halaman berdasarkan jumlah total halaman —
@@ -256,54 +243,38 @@ class PdfService {
     final chunkPaths = <String>[];
     final totalChunks = (imagePaths.length / pagesPerChunk).ceil();
 
-    final probe = PerfProbe(
-        'generatePdfChunked_${imagePaths.length}pages_${totalChunks}chunks');
+    for (int c = 0; c < totalChunks; c++) {
+      final start = c * pagesPerChunk;
+      final end = math.min(start + pagesPerChunk, imagePaths.length);
+      final chunkImages = imagePaths.sublist(start, end);
 
-    try {
-      for (int c = 0; c < totalChunks; c++) {
-        final start = c * pagesPerChunk;
-        final end = math.min(start + pagesPerChunk, imagePaths.length);
-        final chunkImages = imagePaths.sublist(start, end);
-
-        // pw.Document baru per chunk — sengaja dideklarasikan di dalam loop
-        // (bukan di luar) supaya scope-nya berakhir tiap iterasi dan chunk
-        // sebelumnya benar-benar bisa di-GC.
-        final chunkPdf = pw.Document(title: '$title (${c + 1}/$totalChunks)', author: 'DocScan App');
-        for (final path in chunkImages) {
-          final file = File(path);
-          if (!await file.exists()) continue;
-          await _addImagePage(
-            chunkPdf,
-            path,
-            pageFormat,
-            maxDimension: tier.maxDimension,
-            quality: tier.quality,
-          );
-        }
-
-        final fileName = '${safeTitle}_part${c + 1}of$totalChunks'
-            '_${DateTime.now().millisecondsSinceEpoch}.pdf';
-        final outFile = File('${pdfDir.path}/$fileName');
-        await outFile.writeAsBytes(await chunkPdf.save());
-        chunkPaths.add(outFile.path);
-        // chunkPdf keluar scope di sini — tidak ada referensi tersisa ke
-        // Document/MemoryImage chunk ini, GC bebas membebaskannya sebelum
-        // chunk berikutnya mulai decode gambar.
-        //
-        // Titik ukur PENTING: kalau RSS di checkpoint chunk N+1 TIDAK
-        // turun/plateau dibanding chunk N (bukan terus naik linear), berarti
-        // asumsi "GC bebasin chunk sebelum chunk berikutnya mulai" di
-        // komentar atas TIDAK terbukti benar di device nyata — kemungkinan
-        // ada referensi lain yang masih menahan (mis. cache di caller,
-        // GC belum sempat jalan karena tidak ada memory pressure trigger).
-        probe.mark('chunk $c/$totalChunks done '
-            '(${chunkImages.length} pages, ${outFile.lengthSync() ~/ 1024}KB)');
+      // pw.Document baru per chunk — sengaja dideklarasikan di dalam loop
+      // (bukan di luar) supaya scope-nya berakhir tiap iterasi dan chunk
+      // sebelumnya benar-benar bisa di-GC.
+      final chunkPdf = pw.Document(title: '$title (${c + 1}/$totalChunks)', author: 'DocScan App');
+      for (final path in chunkImages) {
+        final file = File(path);
+        if (!await file.exists()) continue;
+        await _addImagePage(
+          chunkPdf,
+          path,
+          pageFormat,
+          maxDimension: tier.maxDimension,
+          quality: tier.quality,
+        );
       }
 
-      return chunkPaths;
-    } finally {
-      probe.finish();
+      final fileName = '${safeTitle}_part${c + 1}of$totalChunks'
+          '_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final outFile = File('${pdfDir.path}/$fileName');
+      await outFile.writeAsBytes(await chunkPdf.save());
+      chunkPaths.add(outFile.path);
+      // chunkPdf keluar scope di sini — tidak ada referensi tersisa ke
+      // Document/MemoryImage chunk ini, GC bebas membebaskannya sebelum
+      // chunk berikutnya mulai decode gambar.
     }
+
+    return chunkPaths;
   }
 
   /// Baca satu gambar, downsize kalau perlu ke [maxDimension] sisi

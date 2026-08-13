@@ -501,6 +501,74 @@ class DocumentStorageService {
     return 'doc_${DateTime.now().millisecondsSinceEpoch}';
   }
 
+  // BUG FIX (migrasi data lama — share: "file yang dikirim bukan foto"):
+  // saveImages() SEKARANG sudah menormalisasi tiap halaman ke JPEG asli
+  // sebelum disimpan (lihat catatan di sana), tapi itu cuma berlaku
+  // untuk dokumen yang disimpan SETELAH fix itu ada. Dokumen yang sudah
+  // lebih dulu tersimpan di HP user (dari "Tambah dari Galeri" sebelum
+  // fix) masih punya file fisik "page_N.jpg" yang isinya sebenarnya
+  // PNG/WEBP/HEIC — titik share sudah dilindungi jaring pengaman
+  // ensureJpeg() (BulkShareService, ScanController, DocumentDetailScreen)
+  // yang menormalisasi ON-THE-FLY tiap kali share terjadi, TAPI itu
+  // berarti konversi decode+encode yang sama terulang tiap kali dokumen
+  // yang sama di-share lagi — kerja yang sama dikerjakan berkali-kali
+  // padahal hasilnya selalu sama.
+  //
+  // migrateNormalizeImageFormats() membenahi ini SEKALI SAJA secara
+  // permanen: menimpa isi file yang bukan JPEG asli langsung di path
+  // penyimpanan permanennya (lewat ImageEnhanceService.ensureJpegInPlace
+  // — path TIDAK berubah, jadi documents_meta.json tidak perlu ditulis
+  // ulang sama sekali). Setelah migrasi sekali jalan, jaring pengaman
+  // ensureJpeg() di titik share jadi selalu fast-path (cek 3 byte, tanpa
+  // decode) untuk SEMUA dokumen, lama maupun baru.
+  //
+  // Ditandai lewat file flag kosong di folder dokumen (bukan
+  // SharedPreferences — proyek ini belum punya dependency itu, dan pola
+  // "flag file di documents dir" sudah konsisten dengan cara app ini
+  // menyimpan state lain) supaya HANYA jalan sekali seumur hidup app,
+  // bukan di-scan ulang tiap startup untuk koleksi dokumen yang sudah
+  // besar. Dipanggil fire-and-forget dari main() (sama pola dengan
+  // ScannerService.purgeStaleTempFiles()) — best-effort, tidak pernah
+  // melempar ke caller, dan kegagalan per-halaman tidak menghentikan
+  // migrasi halaman/dokumen lain.
+  static const String _migrationFlagFile = '.jpeg_migration_v1_done';
+
+  Future<void> migrateNormalizeImageFormats() async {
+    try {
+      final dir = await _docsDir;
+      final flag = File('${dir.path}/$_migrationFlagFile');
+      if (await flag.exists()) return; // sudah pernah jalan, skip
+
+      final docs = await loadDocuments();
+      final enhanceService = ImageEnhanceService();
+      for (final doc in docs) {
+        for (final path in doc.imagePaths) {
+          try {
+            await enhanceService.ensureJpegInPlace(path);
+          } catch (_) {
+            // Satu halaman gagal dinormalisasi (mis. file sudah hilang,
+            // format tidak dikenali sama sekali) — lewati, jangan
+            // gagalkan migrasi dokumen/halaman lain. Halaman ini tetap
+            // akan dicoba lagi lewat jaring pengaman ensureJpeg() di
+            // titik share kalau suatu saat di-share.
+          }
+        }
+      }
+
+      // Tulis flag PALING TERAKHIR, setelah semua dokumen selesai
+      // diproses — supaya kalau app di-kill di tengah migrasi, migrasi
+      // otomatis diulang dari awal di startup berikutnya alih-alih
+      // dianggap "selesai" padahal cuma sebagian jalan. ensureJpegInPlace
+      // sendiri sudah aman diulang (no-op untuk halaman yang sudah benar
+      // JPEG dari percobaan migrasi sebelumnya).
+      await flag.create(recursive: true);
+    } catch (_) {
+      // getApplicationDocumentsDirectory()/listing gagal total — sama
+      // seperti purgeStaleTempFiles(), best-effort, jangan sampai
+      // mengganggu apa pun di app.
+    }
+  }
+
   /// Clear cache (useful when external changes might occur).
   ///
   /// BUG (updateDocument() + invalidateCache() bisa kehilangan pdfPath):

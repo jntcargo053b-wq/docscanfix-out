@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:saver_gallery/saver_gallery.dart';
@@ -12,10 +14,29 @@ import '../../services/pdf_service.dart';
 import '../../services/document_storage_service.dart';
 import '../../services/image_enhance_service.dart';
 import '../../models/scanned_document.dart';
-import '../../utils/file_hash.dart';
-import '../../utils/perf_probe.dart';
 
 enum ScanStatus { idle, scanning, ready, processing, done, error }
+
+// PERF FIX (review keseluruhan — sama seperti ScannerService.
+// _hashFilesForDedupe): _hashAll()/_dedupeAgainstHashes() di bawah dulunya
+// juga md5.convert(await File.readAsBytes()) LANGSUNG di UI isolate untuk
+// tiap halaman — dipanggil dari jalur "Tambah Halaman" (scanDocument()
+// dipanggil lagi atas sesi yang sudah punya halaman), jadi user yang
+// nambah beberapa halaman ke sesi panjang bakal ngerasain UI freeze
+// singkat tiap kali, dikali dua (sekali di ScannerService untuk dedupe
+// dalam-batch, sekali lagi di sini untuk dedupe lintas-batch). Fix: satu
+// compute() call yang meng-hash SEMUA path (existing + baru) sekaligus.
+Future<List<String?>> _hashPathsIsolate(List<String> paths) async {
+  final hashes = <String?>[];
+  for (final p in paths) {
+    try {
+      hashes.add(md5.convert(await File(p).readAsBytes()).toString());
+    } catch (_) {
+      hashes.add(null);
+    }
+  }
+  return hashes;
+}
 
 class ScanController extends ChangeNotifier {
   // ─── Dependencies ────────────────────────────────────────────────────────
@@ -168,15 +189,12 @@ class ScanController extends ChangeNotifier {
 
   /// Hash konten sekumpulan file (dipakai untuk snapshot state "existing"
   /// sebelum operasi yang bisa mengubah isi file di path yang sama).
+  ///
+  /// Lihat catatan lengkap soal PERF FIX (baca+hash dipindah ke
+  /// background isolate) di [_hashPathsIsolate] di atas.
   Future<Set<String>> _hashAll(List<String> paths) async {
-    final hashes = <String>{};
-    for (final p in paths) {
-      // FIX (P1 — MD5 readAsBytes() baca seluruh file ke RAM): hash lewat
-      // streaming (lihat hashFileStreaming()), bukan readAsBytes() penuh.
-      final hash = await hashFileStreaming(p);
-      if (hash != null) hashes.add(hash);
-    }
-    return hashes;
+    final hashes = await compute(_hashPathsIsolate, paths);
+    return {for (final h in hashes) if (h != null) h};
   }
 
   /// Saring halaman baru yang isinya identik dengan [existingHashes] (state
@@ -187,17 +205,12 @@ class ScanController extends ChangeNotifier {
     List<String> newPaths,
     Set<String> existingHashes,
   ) async {
+    final newHashes = await compute(_hashPathsIsolate, newPaths);
     final seen = {...existingHashes};
     final result = <String>[];
-    for (final p in newPaths) {
-      // FIX (P1 — MD5 readAsBytes() baca seluruh file ke RAM): hash lewat
-      // streaming (lihat hashFileStreaming()), bukan readAsBytes() penuh.
-      final hash = await hashFileStreaming(p);
-      if (hash == null) {
-        result.add(p);
-      } else if (seen.add(hash)) {
-        result.add(p);
-      }
+    for (int i = 0; i < newPaths.length; i++) {
+      final hash = newHashes[i];
+      if (hash == null || seen.add(hash)) result.add(newPaths[i]);
     }
     return result;
   }
@@ -531,10 +544,30 @@ class ScanController extends ChangeNotifier {
   /// XFile — fast path (tanpa decode) untuk halaman yang memang sudah
   /// JPEG asli (mayoritas: hasil scan kamera), cuma halaman dari galeri
   /// yang bukan JPEG yang benar-benar dikonversi.
+  ///
+  /// BUG FIX (review keseluruhan — kegagalan ensureJpeg() bisa senyap):
+  /// ensureJpeg() bisa throw kalau format sumbernya tidak dikenali
+  /// package:image (paling umum: HEIC/HEIF dari kamera iPhone atau galeri
+  /// Android yang diset "format efisien" — package:image TIDAK punya
+  /// decoder untuk format ini). Sebelumnya loop ini tidak dibungkus
+  /// try/catch sama sekali, dan _handleShare() di scan_screen.dart cuma
+  /// `await _controller.shareImages();` tanpa cek errorMessage sesudahnya
+  /// (beda dari _handleExportPdf() yang sudah benar) — jadi exception dari
+  /// satu halaman bermasalah akan lolos sampai ke luar Future ini sebagai
+  /// unhandled exception: status balik ke ready, tapi user TIDAK PERNAH
+  /// diberi tahu apa pun terjadi — share diam-diam gagal total. Fix: (1)
+  /// per-halaman dibungkus try/catch — satu halaman yang gagal dinormalisasi
+  /// dilewati (skip) alih-alih menggagalkan seluruh share, dan dicatat di
+  /// [skippedShareCount] untuk ditampilkan; (2) kalau SEMUA halaman gagal,
+  /// _errorMessage diisi supaya caller (scan_screen.dart, sudah diupdate
+  /// juga) bisa menampilkannya, sama pola dengan exportPdf().
+  int skippedShareCount = 0;
+
   Future<void> shareImages() async {
     if (_imagePaths.isEmpty || isProcessing) return;
     _setStatus(ScanStatus.processing);
     _processingStatus = 'Membagikan…';
+    skippedShareCount = 0;
     notifyListeners();
     try {
       final rawTitle = titleController.text.trim();
@@ -542,8 +575,15 @@ class ScanController extends ChangeNotifier {
       final safeTitle = _safeFileName(title);
       final files = <XFile>[];
       for (int i = 0; i < _imagePaths.length; i++) {
-        final normalizedPath =
-            await _enhanceService.ensureJpeg(_imagePaths[i]);
+        String normalizedPath;
+        try {
+          normalizedPath = await _enhanceService.ensureJpeg(_imagePaths[i]);
+        } catch (_) {
+          // Format tidak dikenali (mis. HEIC) atau file sudah hilang —
+          // lewati halaman ini, jangan gagalkan seluruh share.
+          skippedShareCount++;
+          continue;
+        }
         // Catatan: kalau ensureJpeg() sempat membuat file baru (halaman
         // ini bukan JPEG asli), file barunya TIDAK dihapus eksplisit di
         // sini — OS/aplikasi tujuan mungkin masih membaca file lewat
@@ -567,7 +607,14 @@ class ScanController extends ChangeNotifier {
           name: '${safeTitle}_${i + 1}.jpg',
         ));
       }
+      if (files.isEmpty) {
+        _errorMessage =
+            'Tidak ada halaman yang bisa dibagikan (format gambar tidak dikenali).';
+        return;
+      }
       await Share.shareXFiles(files, subject: title, text: title);
+    } catch (e) {
+      _errorMessage = 'Gagal membagikan gambar. Coba lagi.';
     } finally {
       _setStatus(ScanStatus.ready);
     }
@@ -690,7 +737,23 @@ class ScanController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final text = await _prepareAndExtractPipelined(runId);
+      // Prepare images for OCR, using cache if available
+      final preparedPaths = <String>[];
+      for (final originalPath in _imagePaths) {
+        if (_preparedForOcrCache.containsKey(originalPath)) {
+          // Use cached prepared version
+          preparedPaths.add(_preparedForOcrCache[originalPath]!);
+        } else {
+          // Prepare fresh and cache
+          final prepared = await _enhanceService.prepareForOcr(originalPath);
+          if (runId != _ocrRunId) return; // sudah ada _runOcr() lebih baru
+          preparedPaths.add(prepared);
+          _preparedForOcrCache[originalPath] = prepared;
+          _sessionTempFiles.add(prepared);
+        }
+      }
+
+      final text = await _ocrService.extractTextFromImages(preparedPaths);
       if (runId != _ocrRunId) return; // hasil basi — sudah ada run lebih baru
       _extractedText = text;
     } catch (_) {
@@ -702,77 +765,6 @@ class ScanController extends ChangeNotifier {
         notifyListeners();
       }
     }
-  }
-
-  /// FIX (P1 — OCR pipeline: preparation + OCR sekuensial penuh, tidak
-  /// efisien): sebelumnya SEMUA halaman di-prepare dulu satu-satu sampai
-  /// selesai (ImageEnhanceService.prepareForOcr — tiap panggilan spawn
-  /// isolate CPU-bound lewat compute()), BARU SETELAH itu
-  /// OcrService.extractTextFromImages() mulai jalan MLKit satu-satu untuk
-  /// seluruh halaman. Total waktu = sum(durasi prepare semua halaman) +
-  /// sum(durasi OCR semua halaman) secara BERURUTAN — padahal prepare
-  /// halaman i+1 sama sekali tidak bergantung pada hasil OCR halaman i,
-  /// jadi keduanya seharusnya bisa tumpang tindih (resource beda: isolate
-  /// Dart CPU-bound untuk prepare vs native ML model call untuk OCR).
-  /// Fix: pipeline satu langkah — begitu prepare halaman i selesai, mulai
-  /// OCR halaman i SEKALIGUS mulai prepare halaman i+1 di latar belakang
-  /// (tidak di-await), sehingga prepare(i+1) berjalan bersamaan dengan
-  /// ocr(i). Total waktu jadi mendekati max(sum(prepare), sum(ocr))
-  /// alih-alih sum keduanya — penghematan signifikan untuk dokumen banyak
-  /// halaman. Cache _preparedForOcrCache dan cancellation via [runId] tetap
-  /// dipertahankan persis seperti sebelumnya.
-  Future<String> _prepareAndExtractPipelined(int runId) async {
-    if (_imagePaths.isEmpty) return '';
-
-    final probe = PerfProbe('ocr_pipeline_${_imagePaths.length}pages');
-    final buffer = StringBuffer();
-    bool cancelled = false;
-    final timer = Timer(OcrService.totalTimeout, () => cancelled = true);
-
-    Future<String> prepare(String originalPath) async {
-      final cached = _preparedForOcrCache[originalPath];
-      if (cached != null) return cached;
-      final prepared = await _enhanceService.prepareForOcr(originalPath);
-      _preparedForOcrCache[originalPath] = prepared;
-      _sessionTempFiles.add(prepared);
-      return prepared;
-    }
-
-    try {
-      // Mulai prepare halaman pertama sebelum loop supaya iterasi awal
-      // tidak menunggu tanpa ada overlap sama sekali.
-      Future<String>? nextPrepared = prepare(_imagePaths[0]);
-
-      for (int i = 0; i < _imagePaths.length; i++) {
-        if (cancelled || runId != _ocrRunId) break;
-
-        final preparedPath = await nextPrepared!;
-        probe.mark('page $i: prepare done');
-        if (cancelled || runId != _ocrRunId) break;
-
-        // Mulai prepare halaman berikutnya SEKARANG (latar belakang, tidak
-        // di-await di sini) supaya tumpang tindih dengan OCR halaman ini.
-        nextPrepared = (i + 1 < _imagePaths.length)
-            ? prepare(_imagePaths[i + 1])
-            : null;
-
-        final text = await _ocrService.extractTextFromImage(preparedPath);
-        probe.mark('page $i: ocr done');
-        if (cancelled || runId != _ocrRunId) break;
-
-        if (text.isNotEmpty) {
-          if (buffer.isNotEmpty) {
-            buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
-          }
-          buffer.write(text);
-        }
-      }
-    } finally {
-      timer.cancel();
-      probe.finish();
-    }
-
-    return buffer.toString();
   }
 
   /// Clear prepared image caches to free memory

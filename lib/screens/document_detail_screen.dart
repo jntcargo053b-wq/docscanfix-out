@@ -94,6 +94,48 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     if (_isExportingPdf || _isSharing) return;
     setState(() => _isExportingPdf = true);
     try {
+      // PERF FIX (review keseluruhan — PDF RAM untuk dokumen sangat
+      // panjang): sebelumnya method ini SELALU lewat generatePdf() satu-
+      // Document, tanpa pernah cek jumlah halaman — beda dari
+      // BulkShareService.shareAsPdf() yang sudah benar mengalihkan
+      // dokumen > PdfService.chunkPageThreshold ke generatePdfChunked().
+      // Dokumen di layar detail ini justru yang paling berisiko kena
+      // kasus ini: bisa terakumulasi banyak halaman dari beberapa sesi
+      // "Tambah dari Galeri" (tidak ada batas jumlah di image_picker,
+      // beda dari batas 10 halaman/sesi kamera scan) — closure
+      // pw.Document menahan SEMUA pw.MemoryImage tiap halaman sampai
+      // save() (lihat catatan lengkap di PdfService.generatePdf()), jadi
+      // dokumen ratusan halaman bisa OOM di HP RAM rendah kalau tetap
+      // lewat jalur satu-Document. Fix: pola sama persis dengan
+      // BulkShareService.shareAsPdf() — di atas threshold, pakai
+      // generatePdfChunked() (beberapa file PDF kecil, RAM per-chunk)
+      // dan share semuanya sekaligus, TANPA cache ke _doc.pdfPath (satu
+      // field itu cuma bisa menampung satu path — cache path pertama
+      // saja akan bikin share berikutnya salah kira dokumen ini "siap"
+      // padahal cuma sebagian tersimpan, sama alasan seperti di
+      // BulkShareService). Regenerate tiap share untuk dokumen sepanjang
+      // ini adalah trade-off yang lebih aman daripada state pdfPath yang
+      // menyesatkan.
+      if (_doc.pageCount > PdfService.chunkPageThreshold) {
+        final chunkPaths = await _pdfService.generatePdfChunked(
+          title: _doc.title,
+          imagePaths: _doc.imagePaths,
+        );
+        final safeTitle = _safeFileName(_doc.title);
+        await Share.shareXFiles(
+          [
+            for (int c = 0; c < chunkPaths.length; c++)
+              XFile(
+                chunkPaths[c],
+                mimeType: 'application/pdf',
+                name: '${safeTitle}_bag${c + 1}dari${chunkPaths.length}.pdf',
+              ),
+          ],
+          subject: _doc.title,
+        );
+        return;
+      }
+
       String pdfPath;
       if (_doc.pdfPath != null && File(_doc.pdfPath!).existsSync()) {
         pdfPath = _doc.pdfPath!;

@@ -98,7 +98,32 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Future<void> _handleShare() async {
     await _controller.shareImages();
-    // share sheet tidak memicu Navigator — tidak perlu cek mounted
+    if (!mounted) return;
+    // BUG FIX (review keseluruhan): sebelumnya tidak ada pengecekan apa pun
+    // setelah shareImages() — beda dari _handleExportPdf() di bawah yang
+    // sudah benar mengecek errorMessage. Kalau shareImages() gagal (lihat
+    // catatan lengkap di ScanController.shareImages() soal ensureJpeg()
+    // yang bisa throw untuk format tidak dikenali seperti HEIC), user
+    // sebelumnya tidak pernah tahu apa-apa terjadi — "Membagikan…" cuma
+    // hilang begitu saja tanpa penjelasan.
+    if (_controller.errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_controller.errorMessage!),
+          backgroundColor: Colors.red,
+        ),
+      );
+      _controller.clearError();
+    } else if (_controller.skippedShareCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${_controller.skippedShareCount} halaman dilewati (format gambar tidak dikenali).',
+          ),
+        ),
+      );
+    }
+    // share sheet tidak memicu Navigator — tidak perlu cek mounted untuk itu
   }
 
   Future<void> _handleExportPdf() async {

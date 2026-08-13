@@ -213,6 +213,34 @@ class ImageEnhanceService {
     return compute(_ensureJpegIsolate, imagePath);
   }
 
+  /// Varian [ensureJpeg] yang menimpa file di PATH YANG SAMA alih-alih
+  /// mengembalikan path baru. Dipakai untuk migrasi satu-kali dokumen
+  /// lama (lihat DocumentStorageService.migrateNormalizeImageFormats())
+  /// di mana path halaman sudah tercatat permanen di
+  /// documents_meta.json — mengubah path berarti harus ikut menulis
+  /// ulang metadata tiap dokumen, jauh lebih rumit & berisiko daripada
+  /// cukup memperbaiki ISI file di path yang sudah ada. Sama seperti
+  /// ensureJpeg(), no-op (tidak baca/tulis apa pun) kalau file yang
+  /// dicek sudah JPEG asli.
+  Future<void> ensureJpegInPlace(String imagePath) async {
+    if (await _looksLikeJpeg(imagePath)) return;
+    final normalizedPath = await compute(_ensureJpegIsolate, imagePath);
+    try {
+      final bytes = await File(normalizedPath).readAsBytes();
+      await File(imagePath).writeAsBytes(bytes);
+    } finally {
+      // normalizedPath cuma file perantara di temp dir (hasil
+      // _saveTempNamed di dalam _processEnsureJpeg) — sudah tidak
+      // dibutuhkan lagi setelah isinya disalin ke imagePath asli.
+      try {
+        await File(normalizedPath).delete();
+      } catch (_) {
+        // Best-effort — kalaupun gagal hapus, tetap ikut dibersihkan
+        // nanti oleh ScannerService.purgeStaleTempFiles().
+      }
+    }
+  }
+
   /// Cek magic number JPEG (0xFF 0xD8 0xFF) dari 3 byte pertama saja —
   /// tidak baca seluruh file, jauh lebih murah daripada decode penuh.
   /// Kegagalan baca (file hilang, dst) dianggap "bukan JPEG" supaya
