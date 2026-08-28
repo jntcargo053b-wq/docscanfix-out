@@ -189,11 +189,20 @@ class _ScanScreenState extends State<ScanScreen> {
       ),
       actions: [
         if (_controller.hasImages && !_controller.isScanning)
-          TextButton(
-            onPressed: _controller.isProcessing ? null : _handleSave,
-            child: const Text(
-              'SIMPAN',
-              style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primary),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton.icon(
+              onPressed: _controller.isProcessing ? null : _handleSave,
+              icon: const Icon(Icons.save_outlined, size: 18),
+              label: const Text(
+                'SIMPAN',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
             ),
           ),
       ],

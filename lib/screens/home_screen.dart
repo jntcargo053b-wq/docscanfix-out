@@ -435,11 +435,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildSelectionHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 16, 20, 8),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Row(
         children: [
           IconButton(
+            tooltip: 'Batal pilih',
             onPressed: _cancelSelection,
             icon: const Icon(Icons.close, color: AppTheme.textPrimary),
           ),
@@ -485,15 +491,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: Text(
-              'Dokumen Saya',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Dokumen Saya',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${_documents.length} ${_documents.length == 1 ? 'dokumen' : 'dokumen'}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+              ],
             ),
           ),
         ],
@@ -503,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSearchBar() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
       child: TextField(
         controller: _searchController,
         onChanged: _onSearchChanged,
@@ -544,10 +565,14 @@ class _HomeScreenState extends State<HomeScreen> {
           filled: true,
           fillColor: AppTheme.surface,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             borderSide: BorderSide.none,
           ),
-          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
+            borderSide: const BorderSide(color: AppTheme.primary, width: 1),
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
         ),
       ),
     );
@@ -578,7 +603,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final visibleDocs = docs.take(_visibleCount).toList();
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
       itemCount: visibleDocs.length,
       itemBuilder: (context, index) {
         final doc = visibleDocs[index];
@@ -633,13 +658,28 @@ class _HomeScreenState extends State<HomeScreen> {
               }
             }
           },
-        ).animate().fadeIn(duration: 300.ms, delay: (index * 50).ms);
+        ).animate().fadeIn(duration: 180.ms);
       },
     );
   }
 
   Widget _buildFAB() {
-    return FloatingActionButton(
+    return FloatingActionButton.extended(
+      heroTag: 'scan_fab',
+      label: const Text(
+        'Scan',
+        style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black),
+      ),
+      icon: _isScanning
+          ? const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Colors.black,
+              ),
+            )
+          : const Icon(Icons.document_scanner_outlined, color: Colors.black),
       onPressed: _isScanning
           ? null
           : () async {
@@ -659,9 +699,6 @@ class _HomeScreenState extends State<HomeScreen> {
               if (mounted) setState(() => _isScanning = false);
             },
       backgroundColor: AppTheme.primary,
-      child: _isScanning
-          ? const CircularProgressIndicator(color: Colors.black)
-          : const Icon(Icons.add),
     ).animate().scale(delay: 300.ms, curve: Curves.elasticOut);
   }
 }

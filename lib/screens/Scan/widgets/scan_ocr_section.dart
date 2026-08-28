@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
 
+import '../../../theme/app_theme.dart';
+
 /// Shows either an OCR loading indicator or the extracted text snippet.
 /// Renders nothing when neither state is active.
 class ScanOcrSection extends StatelessWidget {
@@ -25,19 +27,34 @@ class ScanOcrSection extends StatelessWidget {
 class _OcrLoadingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: const [
-        SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        Gap(10),
-        Text(
-          'Mengenali teks…',
-          style: TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-      ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.surfaceLight),
+      ),
+      child: Row(
+        children: const [
+          SizedBox(
+            width: 15,
+            height: 15,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppTheme.primary,
+            ),
+          ),
+          Gap(10),
+          Text(
+            'Mengenali teks…',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppTheme.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -53,19 +70,26 @@ class _OcrResultCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blue.shade50,
+        color: AppTheme.surface,
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.surfaceLight),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            children: const [
-              Icon(Icons.text_fields, size: 18, color: Colors.blue),
-              Gap(8),
+            children: [
+              const Icon(
+                Icons.text_fields,
+                size: 18,
+                color: AppTheme.primary,
+              ),
+              const Gap(8),
               Text(
                 'Hasil OCR',
-                style: TextStyle(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
             ],
           ),
@@ -74,7 +98,10 @@ class _OcrResultCard extends StatelessWidget {
             text,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppTheme.textSecondary,
+                  height: 1.45,
+                ),
           ),
         ],
       ),

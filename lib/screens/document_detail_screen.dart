@@ -200,14 +200,17 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_doc.title),
+        title: Text(_doc.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         backgroundColor: AppTheme.surface,
+        titleSpacing: 0,
         actions: [
           IconButton(
+            tooltip: 'Bagikan',
             icon: const Icon(Icons.share_outlined),
             onPressed: _isSharing ? null : _shareAsImages,
           ),
           IconButton(
+            tooltip: 'Ekspor PDF',
             icon: const Icon(Icons.picture_as_pdf_outlined),
             onPressed: _isExportingPdf ? null : _exportAsPdf,
           ),
@@ -218,13 +221,29 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '${_doc.imagePaths.length} halaman',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: AppTheme.textSecondary,
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceLight,
+                    borderRadius: BorderRadius.circular(10),
                   ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.layers_outlined, size: 15, color: AppTheme.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${_doc.imagePaths.length} halaman',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Expanded(
               child: ImageGrid(
                 imagePaths: _doc.imagePaths,

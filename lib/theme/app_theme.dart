@@ -30,7 +30,9 @@ class AppTheme {
       scaffoldBackgroundColor: background,
       appBarTheme: const AppBarTheme(
         backgroundColor: background,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: false,
         titleTextStyle: TextStyle(
           fontFamily: 'Roboto',
@@ -41,9 +43,10 @@ class AppTheme {
         ),
         iconTheme: IconThemeData(color: textPrimary),
       ),
-      cardTheme: CardThemeData(        // ← FIXED: was CardTheme
+      cardTheme: CardThemeData(
         color: surface,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
@@ -87,6 +90,33 @@ class AppTheme {
           fontSize: 13, fontWeight: FontWeight.w600,
           color: textSecondary, letterSpacing: 0.5,
         ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: surface,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        hintStyle: const TextStyle(color: textSecondary, fontSize: 14),
+        prefixIconColor: textSecondary,
+        suffixIconColor: textSecondary,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+          borderSide: BorderSide(color: primary, width: 1),
+        ),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: surfaceLight,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        elevation: 8,
       ),
       iconTheme: const IconThemeData(color: textSecondary),
       dividerTheme: const DividerThemeData(

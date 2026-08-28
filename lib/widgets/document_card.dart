@@ -33,16 +33,19 @@ class DocumentCard extends StatelessWidget {
       onTap: isSelectionMode ? onSelectToggle : onTap,
       onLongPress: onLongPress,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: AppTheme.surface,
+          color: isSelected ? AppTheme.primary.withValues(alpha: 0.08) : AppTheme.surface,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected ? AppTheme.primary : AppTheme.surfaceLight,
-            width: isSelected ? 1.5 : 1,
+            width: isSelected ? 1.4 : 1,
           ),
         ),
+        boxShadow: isSelected
+            ? [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.08), blurRadius: 12, spreadRadius: 1)]
+            : null,
         child: Row(
           children: [
             if (isSelectionMode) ...[
@@ -50,7 +53,7 @@ class DocumentCard extends StatelessWidget {
               const Gap(10),
             ],
             _buildThumbnail(context),
-            const Gap(14),
+            const Gap(12),
             Expanded(child: _buildInfo(context)),
             if (!isSelectionMode) _buildMenu(context),
           ],
@@ -106,7 +109,7 @@ class DocumentCard extends StatelessWidget {
       // Ini cuma jaring pengaman kedua (thumbnail asli sudah 200x200), tapi
       // tetap murah dan menghindari decode besar kalau fallback ke full-res.
       final dpr = MediaQuery.of(context).devicePixelRatio;
-      final targetPx = (60 * dpr).round();
+      final targetPx = (64 * dpr).round();
       provider = ResizeImage(
         FileImage(File(imagePath)),
         width: targetPx,
@@ -115,10 +118,10 @@ class DocumentCard extends StatelessWidget {
     }
 
     return Container(
-      width: 60,
-      height: 60,
+      width: 64,
+      height: 64,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         color: AppTheme.surfaceLight,
         image: provider != null
             ? DecorationImage(image: provider, fit: BoxFit.cover)
@@ -166,6 +169,7 @@ class DocumentCard extends StatelessWidget {
 
   Widget _buildMenu(BuildContext context) {
     return PopupMenuButton(
+      tooltip: 'Opsi dokumen',
       icon: const Icon(Icons.more_vert, color: AppTheme.textSecondary),
       onSelected: (value) {
         if (value == 'delete') onDelete();
