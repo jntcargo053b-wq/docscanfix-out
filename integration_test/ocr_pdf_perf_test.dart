@@ -69,7 +69,7 @@ void main() {
     }
 
     /// Replikasi persis pipeline pipelined di
-    /// ScanController._prepareAndExtractPipelined() — dijalankan langsung
+    /// Jalur OCR ScanController — dijalankan melalui API/controller yang tersedia.
     /// di luar widget tree supaya bisa diprofilkan terisolasi dari OCR UI.
     Future<void> profileOcrPipeline(int pageCount) async {
       final paths = await synthesizeImages(pageCount);

@@ -1,9 +1,14 @@
 # Panduan Profiling OCR Multi-Halaman & Memori PDF (10/20/30 halaman)
 
-Instrumentasi sudah ditanam di kode (`PerfProbe` di `lib/utils/perf_probe.dart`,
-dipakai di `ScanController._prepareAndExtractPipelined()`,
-`PdfService.generatePdf()`, `PdfService.generatePdfChunked()`) + test harness
-on-device di `integration_test/ocr_pdf_perf_test.dart`.
+Instrumentasi `PerfProbe` tersedia di `lib/utils/perf_probe.dart` dan saat ini
+digunakan oleh **test harness on-device** di
+`integration_test/ocr_pdf_perf_test.dart`. Instrumentasi ini **bukan** logging
+performa yang tertanam di flow aplikasi production.
+
+Test harness mengukur jalur OCR melalui API/controller yang tersedia saat ini
+serta `PdfService.generatePdf()` dan `PdfService.generatePdfChunked()`.
+Jadi output `PerfProbe` akan muncul ketika integration test dijalankan, bukan
+ketika aplikasi biasa dipakai dari UI.
 
 Saya tidak bisa mengeksekusi ini di sandbox (tidak ada Flutter SDK/emulator
 di sini), jadi berikut cara jalanin di sisi kamu dan cara baca hasilnya.
@@ -27,7 +32,7 @@ flutter test integration_test/ocr_pdf_perf_test.dart -d <device_id>
 
 Test ini generate gambar sintetis (~2480x3508, mirip foto dokumen A4 kamera)
 berisi teks rendered supaya OCR beneran punya kerjaan, lalu jalankan:
-- Pipeline OCR (prepare+extract pipelined) untuk N = 10, 20, 30 halaman
+- Pipeline OCR untuk N = 10, 20, 30 halaman
 - `generatePdf()` single-file untuk N = 10, 20, 30 halaman
 - `generatePdfChunked()` untuk N = 30 (persis di `chunkPageThreshold`)
 
@@ -38,7 +43,7 @@ checkpoint) — **copy-paste output itu**, itu bahan analisis utamanya.
 
 Contoh format output:
 ```
-── PerfProbe [OCR_pipeline_20pages] ──────────────────────────
+── PerfProbe [OCR_20pages] ──────────────────────────
 total: 18420ms | peak RSS: 312.4MB (+142.1MB dari awal)
   [   850ms]   210.3MB (Δ40.0MB)  page 0: prepare done
   [  1620ms]   215.1MB (Δ44.8MB)  page 0: ocr done (1204 chars)

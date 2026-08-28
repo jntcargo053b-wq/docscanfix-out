@@ -16,7 +16,7 @@ lib/
 ├── models/
 │   └── scanned_document.dart          # Model data dokumen
 ├── services/
-│   ├── scanner_service.dart           # Kamera & scan dokumen
+│   ├── services/scanner_service.dart      # Kamera & scan dokumen
 │   ├── ocr_service.dart               # Google ML Kit OCR
 │   ├── pdf_service.dart               # Generate & share PDF
 │   ├── image_enhance_service.dart     # Resize, enhance, thumbnail
