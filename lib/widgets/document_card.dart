@@ -42,10 +42,16 @@ class DocumentCard extends StatelessWidget {
             color: isSelected ? AppTheme.primary : AppTheme.surfaceLight,
             width: isSelected ? 1.4 : 1,
           ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppTheme.primary.withValues(alpha: 0.08),
+                    blurRadius: 12,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
         ),
-        boxShadow: isSelected
-            ? [BoxShadow(color: AppTheme.primary.withValues(alpha: 0.08), blurRadius: 12, spreadRadius: 1)]
-            : null,
         child: Row(
           children: [
             if (isSelectionMode) ...[
