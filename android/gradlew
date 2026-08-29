@@ -1,44 +1,13 @@
 #!/usr/bin/env sh
+set -e
 
-# Minimal, deterministic Gradle Wrapper bootstrap.
-# The actual build is always delegated to the official Gradle Wrapper JAR.
-# We only bootstrap the JAR itself when it is absent, then the JAR reads
-# gradle-wrapper.properties and downloads/verifies the declared distribution.
-
-APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
-WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
-WRAPPER_URL="https://services.gradle.org/distributions/gradle-8.13-wrapper.jar"
-WRAPPER_SHA256="81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f"
-
-if [ ! -f "$WRAPPER_JAR" ]; then
-  mkdir -p "$(dirname "$WRAPPER_JAR")"
-  tmp="$WRAPPER_JAR.part"
-  rm -f "$tmp"
-  if command -v curl >/dev/null 2>&1; then
-    curl --fail --silent --show-error --location --output "$tmp" "$WRAPPER_URL"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$tmp" "$WRAPPER_URL"
-  else
-    echo "ERROR: curl or wget is required to bootstrap the Gradle Wrapper." >&2
-    exit 1
-  fi
-  actual="$(sha256sum "$tmp" | awk '{print $1}')"
-  if [ "$actual" != "$WRAPPER_SHA256" ]; then
-    rm -f "$tmp"
-    echo "ERROR: Gradle Wrapper JAR checksum mismatch." >&2
-    echo "Expected: $WRAPPER_SHA256" >&2
-    echo "Actual:   $actual" >&2
-    exit 1
-  fi
-  mv "$tmp" "$WRAPPER_JAR"
+# Flutter invokes this script on Android builds. Gradle itself is provisioned
+# deterministically by GitHub Actions via gradle/actions/setup-gradle with
+# gradle-version: '8.13'. No Gradle Wrapper JAR is used by this project.
+if ! command -v gradle >/dev/null 2>&1; then
+  echo "ERROR: Gradle is not available on PATH." >&2
+  echo "Run gradle/actions/setup-gradle with gradle-version: '8.13' first." >&2
+  exit 127
 fi
 
-actual="$(sha256sum "$WRAPPER_JAR" | awk '{print $1}')"
-if [ "$actual" != "$WRAPPER_SHA256" ]; then
-  echo "ERROR: Gradle Wrapper JAR checksum mismatch." >&2
-  echo "Expected: $WRAPPER_SHA256" >&2
-  echo "Actual:   $actual" >&2
-  exit 1
-fi
-
-exec java -classpath "$WRAPPER_JAR" org.gradle.wrapper.GradleWrapperMain "$@"
+exec gradle "$@"
