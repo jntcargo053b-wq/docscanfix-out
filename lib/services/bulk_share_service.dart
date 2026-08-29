@@ -132,6 +132,7 @@ class BulkShareService {
         validDocs.fold<int>(0, (sum, d) => sum + d.imagePaths.length);
 
     final files = <XFile>[];
+    final generatedTempFiles = <String>{};
     int done = 0;
     // FIX: nama file sebelumnya cuma "<judul>_hal<N>.jpg". Judul dokumen
     // default ("Scan DD-MM-YYYY HH:MM") cuma presisi menit, jadi kalau user
@@ -168,6 +169,7 @@ class BulkShareService {
         globalIndex++;
         if (await File(p).exists()) {
           final normalizedPath = await _enhanceService.ensureJpeg(p);
+          if (normalizedPath != p) generatedTempFiles.add(normalizedPath);
           files.add(XFile(
             normalizedPath,
             mimeType: 'image/jpeg',
@@ -189,7 +191,18 @@ class BulkShareService {
     // dianggap noise yang tidak perlu (penerima cukup melihat lampiran
     // foto itu sendiri). Dibiarkan null: share_plus/Android tidak
     // memaksa ada subject/text untuk lampiran gambar.
-    await Share.shareXFiles(files);
+    try {
+      await Share.shareXFiles(files);
+    } finally {
+      // ensureJpeg() may create temporary normalized copies for legacy
+      // PNG/WEBP/HEIC pages. Clean them immediately after the share flow
+      // returns instead of waiting for the next app startup.
+      for (final path in generatedTempFiles) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+    }
   }
 
   /// Bersihkan judul dokumen supaya aman dipakai sebagai nama file

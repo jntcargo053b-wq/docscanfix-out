@@ -3,19 +3,17 @@ import '../models/scanned_document.dart';
 
 /// Menjalankan pencarian/filter dokumen.
 ///
-/// SELALU dijalankan lewat [compute] di background isolate, apa pun ukuran
-/// koleksinya, supaya UI thread tidak pernah ikut nge-block sedikit pun
-/// saat men-scan extractedText — konsisten dan dapat diprediksi, tidak
-/// bergantung pada tebakan ambang jumlah dokumen yang bisa meleset untuk
-/// koleksi dengan extractedText sangat panjang tapi jumlah dokumen sedikit
-/// (di bawah ambang tapi tetap berat untuk di-scan sinkron).
+/// Memilih jalur pencarian berdasarkan ukuran koleksi DAN perkiraan total
+/// teks OCR. Koleksi kecil dengan payload kecil diproses langsung untuk
+/// menghindari overhead spawn/serialisasi isolate; koleksi besar atau yang
+/// membawa OCR berat tetap dipindahkan ke background isolate.
 ///
-/// [isolateThreshold] tetap dipertahankan (bukan dihapus) hanya karena
-/// dipakai di tempat lain (home_screen.dart) untuk memutuskan kapan
-/// menampilkan indikator loading — bukan lagi untuk memutuskan jalur
-/// sinkron/isolate di sini.
+/// [isolateThreshold] tetap dipertahankan karena dipakai di tempat lain
+/// (home_screen.dart) untuk indikator loading.
 class DocumentSearchService {
   static const int isolateThreshold = 150;
+  static const int _smallCollectionThreshold = 80;
+  static const int _largeTextThreshold = 120000;
 
   static Future<List<ScannedDocument>> filter(
     List<ScannedDocument> documents,
@@ -23,8 +21,20 @@ class DocumentSearchService {
   ) async {
     if (query.trim().isEmpty) return documents;
 
-    final args = _FilterArgs(documents, query);
-    return compute(_filterSync, args);
+    final normalized = query.trim().toLowerCase();
+    // Avoid isolate spawn/serialization overhead for genuinely small searches,
+    // while still protecting the UI when a small collection contains very
+    // large OCR payloads.
+    final estimatedText = documents.fold<int>(
+      0,
+      (sum, d) => sum + d.title.length + (d.extractedText?.length ?? 0),
+    );
+    if (documents.length < _smallCollectionThreshold &&
+        estimatedText < _largeTextThreshold) {
+      return _filterSync(_FilterArgs(documents, normalized));
+    }
+
+    return compute(_filterSync, _FilterArgs(documents, normalized));
   }
 }
 

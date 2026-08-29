@@ -29,7 +29,26 @@ class DocumentStorageService {
 
   // ── Debounce timer for batch writes ──
   Timer? _writeTimer;
+  bool _writePending = false;
   static const Duration _writeDelay = Duration(milliseconds: 500);
+
+  // Serialize every cache mutation + metadata write. Without this lock, two
+  // async callers can both load the same list, modify it, and then overwrite
+  // each other's metadata. A tiny FIFO lock keeps the existing API intact
+  // while making add/update/delete/upsert safe under concurrent calls.
+  Future<void> _mutationLock = Future<void>.value();
+
+  Future<T> _withMutationLock<T>(Future<T> Function() action) async {
+    final previous = _mutationLock;
+    final release = Completer<void>();
+    _mutationLock = release.future;
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release.complete();
+    }
+  }
 
   Future<Directory> get _docsDir async {
     final dir = await getApplicationDocumentsDirectory();
@@ -75,18 +94,35 @@ class DocumentStorageService {
       final jsonStr = await file.readAsString();
       final fileIsLarge = jsonStr.length > _largeMetaFileBytes;
       _cachedDocuments = fileIsLarge
-          // Koleksi besar: decode+parse di background isolate supaya main
-          // thread tidak ikut blok selama proses ini berlangsung.
           ? await compute(_parseDocumentsJson, jsonStr)
-          // Koleksi kecil: tetap sinkron — overhead spawn isolate untuk
-          // payload kecil lebih mahal daripada manfaatnya.
           : _parseDocumentsJson(jsonStr);
       _cacheValid = true;
       return List.unmodifiable(_cachedDocuments!);
     } catch (e) {
-      _cachedDocuments = [];
-      _cacheValid = true;
-      return [];
+      // Never silently convert metadata corruption/I/O failure into an empty
+      // database. If the primary metadata is damaged, try the last known-good
+      // backup produced by _writeMetaAtomic(). If recovery also fails, surface
+      // the error so callers do not accidentally overwrite valid documents
+      // with an empty list.
+      try {
+        final file = await _metaFilePath;
+        final backup = File('${file.path}.bak');
+        if (await backup.exists()) {
+          final jsonStr = await backup.readAsString();
+          final fileIsLarge = jsonStr.length > _largeMetaFileBytes;
+          _cachedDocuments = fileIsLarge
+              ? await compute(_parseDocumentsJson, jsonStr)
+              : _parseDocumentsJson(jsonStr);
+          _cacheValid = true;
+          // Best-effort repair of the primary metadata file.
+          try {
+            await backup.copy(file.path);
+          } catch (_) {}
+          return List.unmodifiable(_cachedDocuments!);
+        }
+      } catch (_) {}
+      _cacheValid = false;
+      rethrow;
     }
   }
 
@@ -138,25 +174,57 @@ class DocumentStorageService {
   Future<void> _writeMetaAtomic(String jsonStr) async {
     final file = await _metaFilePath;
     final tmpFile = File('${file.path}.tmp');
+    final backupFile = File('${file.path}.bak');
+
+    // Write the new document completely before touching the live metadata.
     await tmpFile.writeAsString(jsonStr, flush: true);
-    await tmpFile.rename(file.path);
+
+    // Keep a last-known-good copy for recovery if a future write is interrupted
+    // or the live file becomes unreadable. This copy is made only after the
+    // new temp file is complete, so it can never replace the primary with a
+    // partially-written payload.
+    if (await file.exists()) {
+      try {
+        await file.copy(backupFile.path);
+      } catch (_) {
+        // Backup is best-effort; the atomic primary write remains mandatory.
+      }
+    }
+
+    try {
+      await tmpFile.rename(file.path);
+    } catch (_) {
+      // Some platforms/filesystems reject rename-over-existing. Remove the
+      // target only after the temp file is fully written, then retry.
+      if (await file.exists()) {
+        await file.delete();
+      }
+      await tmpFile.rename(file.path);
+    }
   }
 
   /// Save document list to disk with debouncing to batch writes
   Future<void> _deferredSaveDocuments() async {
-    // Cancel previous timer
+    // Cancel previous timer and replace it with one representing the latest
+    // cache state. Keep a separate pending flag because Timer.isActive becomes
+    // false as soon as its callback starts, even if that callback is still
+    // waiting for the mutation lock.
     _writeTimer?.cancel();
+    _writePending = true;
 
-    // Schedule write after delay to batch rapid updates
     _writeTimer = Timer(_writeDelay, () async {
-      if (_cachedDocuments == null) return;
       try {
-        final jsonStr = json.encode(
-          _cachedDocuments!.map((d) => d.toJson()).toList(),
-        );
-        await _writeMetaAtomic(jsonStr);
-      } catch (e) {
-        // Silently fail deferred writes; caller should handle critical saves
+        await _withMutationLock<void>(() async {
+          if (_cachedDocuments == null) return;
+          final jsonStr = json.encode(
+            _cachedDocuments!.map((d) => d.toJson()).toList(),
+          );
+          await _writeMetaAtomic(jsonStr);
+        });
+      } catch (_) {
+        // Deferred writes are best-effort; critical callers use immediate save.
+      } finally {
+        _writePending = false;
       }
     });
   }
@@ -177,8 +245,9 @@ class DocumentStorageService {
 
   /// Add a new document (commit dokumen hasil scan).
   Future<void> addDocument(ScannedDocument document) async {
-    // Load from cache if valid, otherwise from disk
-    final docs = await loadDocuments();
+    await _withMutationLock<void>(() async {
+      // Load from cache if valid, otherwise from disk
+      final docs = await loadDocuments();
 
     // Modify in-memory cache
     _cachedDocuments = [document, ...docs];
@@ -195,7 +264,8 @@ class DocumentStorageService {
     // dokumennya tidak pernah muncul di daftar ("hilang" dari sisi user).
     // Commit dokumen adalah operasi kritis satu-kali (bukan burst update
     // berulang), jadi ditulis langsung/synchronous, bukan di-defer.
-    await _saveLocked();
+      await _saveLocked();
+    });
   }
 
   /// Update an existing document.
@@ -221,7 +291,8 @@ class DocumentStorageService {
     ScannedDocument document, {
     bool immediate = false,
   }) async {
-    final docs = await loadDocuments();
+    return _withMutationLock<void>(() async {
+      final docs = await loadDocuments();
     final idx = docs.indexWhere((d) => d.id == document.id);
     if (idx == -1) return;
 
@@ -229,17 +300,19 @@ class DocumentStorageService {
     _cachedDocuments![idx] = document;
     _cacheValid = true;
 
-    if (immediate) {
-      await _saveLocked();
-    } else {
-      await _deferredSaveDocuments();
-    }
+      if (immediate) {
+        await _saveLocked();
+      } else {
+        await _deferredSaveDocuments();
+      }
+    });
   }
 
   /// Add or update batch of documents
   /// More efficient than calling addDocument/updateDocument multiple times
   Future<void> upsertDocuments(List<ScannedDocument> documents) async {
-    final docs = await loadDocuments();
+    await _withMutationLock<void>(() async {
+      final docs = await loadDocuments();
 
     for (final doc in documents) {
       final idx = docs.indexWhere((d) => d.id == doc.id);
@@ -251,12 +324,14 @@ class DocumentStorageService {
     }
 
     _cacheValid = true;
-    await _deferredSaveDocuments();
+      await _deferredSaveDocuments();
+    });
   }
 
   /// Delete a document and its files
   Future<void> deleteDocument(String documentId) async {
-    final docs = await loadDocuments();
+    await _withMutationLock<void>(() async {
+      final docs = await loadDocuments();
 
     // Cari dokumen; jika tidak ada, langsung return (idempotent delete)
     final docIndex = docs.indexWhere((d) => d.id == documentId);
@@ -285,12 +360,14 @@ class DocumentStorageService {
     // Update cache and save immediately
     _cachedDocuments!.removeAt(docIndex);
     _cacheValid = true;
-    await _saveLocked();
+      await _saveLocked();
+    });
   }
 
   /// Delete multiple documents (batch operation)
   Future<void> deleteDocuments(List<String> documentIds) async {
-    final docs = await loadDocuments();
+    await _withMutationLock<void>(() async {
+      final docs = await loadDocuments();
 
     final toDelete = <ScannedDocument>[];
     for (final id in documentIds) {
@@ -319,7 +396,8 @@ class DocumentStorageService {
     }
 
     _cacheValid = true;
-    await _saveLocked();
+      await _saveLocked();
+    });
   }
 
   /// Copy scanned images ke permanent storage (tanpa processing)
@@ -445,8 +523,11 @@ class DocumentStorageService {
     // tempPaths kosong tapi savedPaths ada isinya, fallback ke path
     // PERMANEN halaman pertama yang barusan selesai di-copy — sama
     // seperti perilaku lama, sekadar jaring pengaman terakhir.
-    String? thumbnailPath = await thumbnailFuture;
-    thumbnailPath ??= savedPaths.isNotEmpty ? savedPaths.first : null;
+    // Do not fall back to a full-resolution page as thumbnail. A missing
+    // thumbnail is preferable to reintroducing large image decodes into the
+    // document list. DocumentCard already has a safe resized-image fallback
+    // for legacy documents.
+    final thumbnailPath = await thumbnailFuture;
 
     return (imagePaths: savedPaths, thumbnailPath: thumbnailPath);
   }
@@ -587,11 +668,14 @@ class DocumentStorageService {
   /// Fix: kalau ada write yang masih pending, flush dulu (tulis langsung)
   /// sebelum invalidate — bukan dibuang begitu saja.
   Future<void> invalidateCache() async {
-    if (_writeTimer?.isActive ?? false) {
-      _writeTimer!.cancel();
-      await _saveLocked();
-    }
-    _cacheValid = false;
+    await _withMutationLock<void>(() async {
+      if (_writePending) {
+        _writeTimer?.cancel();
+        _writePending = false;
+        await _saveLocked();
+      }
+      _cacheValid = false;
+    });
   }
 
   // ── Helper methods for background file deletion ──

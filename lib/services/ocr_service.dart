@@ -35,6 +35,24 @@ class OcrService {
   static const int _poolSize = 2;
   final List<TextRecognizer?> _recognizers = List<TextRecognizer?>.filled(_poolSize, null);
 
+  // ML Kit recognizers are native resources. Serialize whole multi-page OCR
+  // sessions so two callers cannot concurrently consume the same singleton
+  // pool and create uncontrolled native CPU/memory contention. Within one
+  // session we still use the two independent recognizers in parallel.
+  Future<void> _ocrQueue = Future<void>.value();
+
+  Future<T> _withOcrQueue<T>(Future<T> Function() action) async {
+    final previous = _ocrQueue;
+    final release = Completer<void>();
+    _ocrQueue = release.future;
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release.complete();
+    }
+  }
+
   TextRecognizer _recognizerAt(int slot) {
     return _recognizers[slot] ??= TextRecognizer(script: TextRecognitionScript.latin);
   }
@@ -87,6 +105,10 @@ class OcrService {
   /// sendiri — satu halaman gagal cuma jadi teks kosong untuk halaman itu,
   /// halaman lain tetap diproses.
   Future<String> extractTextFromImages(List<String> imagePaths) async {
+    return _withOcrQueue<String>(() => _extractTextFromImagesImpl(imagePaths));
+  }
+
+  Future<String> _extractTextFromImagesImpl(List<String> imagePaths) async {
     final results = List<String>.filled(imagePaths.length, '');
     bool cancelled = false;
 
