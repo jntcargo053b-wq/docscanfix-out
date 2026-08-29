@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:crypto/crypto.dart';
+import '../../utils/file_hash.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -30,7 +30,7 @@ Future<List<String?>> _hashPathsIsolate(List<String> paths) async {
   final hashes = <String?>[];
   for (final p in paths) {
     try {
-      hashes.add(md5.convert(await File(p).readAsBytes()).toString());
+      hashes.add(await hashFileStreaming(p));
     } catch (_) {
       hashes.add(null);
     }

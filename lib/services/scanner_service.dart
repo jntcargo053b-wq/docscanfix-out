@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:crypto/crypto.dart';
+import '../utils/file_hash.dart';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -26,8 +26,7 @@ Future<List<String?>> _hashFilesForDedupe(List<String> paths) async {
   final hashes = <String?>[];
   for (final path in paths) {
     try {
-      final bytes = await File(path).readAsBytes();
-      hashes.add(md5.convert(bytes).toString());
+      hashes.add(await hashFileStreaming(path));
     } catch (_) {
       // File tidak terbaca — null berarti "anggap unik", biar lolos apa
       // adanya dan ditangani di tahap berikutnya (mis. saveImages sudah

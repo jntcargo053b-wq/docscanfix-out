@@ -217,6 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() => _isBulkSharing = false);
     if (!await _confirmIfOverLimit(estimate)) return;
+    if (!mounted) return;
 
     final progress =
         ValueNotifier<BulkShareProgress>(BulkShareProgress(0, 0, ''));
@@ -263,6 +264,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() => _isBulkSharing = false);
     if (!await _confirmIfOverLimit(estimate)) return;
+    if (!mounted) return;
 
     final progress =
         ValueNotifier<BulkShareProgress>(BulkShareProgress(0, docs.length, ''));

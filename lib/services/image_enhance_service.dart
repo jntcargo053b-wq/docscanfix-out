@@ -225,19 +225,28 @@ class ImageEnhanceService {
   Future<void> ensureJpegInPlace(String imagePath) async {
     if (await _looksLikeJpeg(imagePath)) return;
     final normalizedPath = await compute(_ensureJpegIsolate, imagePath);
+    final source = File(normalizedPath);
+    final target = File(imagePath);
+    // Temp replacement harus berada di direktori yang sama dengan target
+    // agar rename tetap berada pada filesystem yang sama. Dengan begitu
+    // migrasi tidak pernah menulis byte JPEG setengah jadi langsung ke file
+    // permanen. Rename menjadi satu operasi replacement pada Android/Linux.
+    final targetDir = target.parent;
+    final tempPath =
+        '${targetDir.path}/.${target.uri.pathSegments.last}.${DateTime.now().microsecondsSinceEpoch}.tmp';
+    final replacement = File(tempPath);
     try {
-      final bytes = await File(normalizedPath).readAsBytes();
-      await File(imagePath).writeAsBytes(bytes);
+      await source.copy(tempPath);
+      await replacement.rename(imagePath);
     } finally {
-      // normalizedPath cuma file perantara di temp dir (hasil
-      // _saveTempNamed di dalam _processEnsureJpeg) — sudah tidak
-      // dibutuhkan lagi setelah isinya disalin ke imagePath asli.
+      // normalizedPath adalah file perantara dari isolate.
       try {
-        await File(normalizedPath).delete();
-      } catch (_) {
-        // Best-effort — kalaupun gagal hapus, tetap ikut dibersihkan
-        // nanti oleh ScannerService.purgeStaleTempFiles().
-      }
+        await source.delete();
+      } catch (_) {}
+      // Jika proses gagal sebelum rename, jangan tinggalkan temp replacement.
+      try {
+        if (await replacement.exists()) await replacement.delete();
+      } catch (_) {}
     }
   }
 
