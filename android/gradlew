@@ -9,6 +9,12 @@ GRADLE_SHA256=$(sed -n 's/^distributionSha256Sum=//p' "$PROPERTIES")
 : "${GRADLE_VERSION:?Missing Gradle version}"
 : "${GRADLE_SHA256:?Missing Gradle checksum}"
 
+# Prefer a provisioned Gradle binary (for example GitHub Actions setup-gradle).
+# This avoids relying on a possibly stale/corrupt wrapper cache.
+if command -v gradle >/dev/null 2>&1; then
+  exec "$(command -v gradle)" "$@"
+fi
+
 GRADLE_USER_HOME=${GRADLE_USER_HOME:-"$HOME/.gradle"}
 DIST_DIR="$GRADLE_USER_HOME/wrapper/dists/gradle-$GRADLE_VERSION-bin"
 DIST_ZIP="$DIST_DIR/gradle-$GRADLE_VERSION-bin.zip"
