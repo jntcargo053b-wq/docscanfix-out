@@ -1,17 +1,22 @@
 #!/usr/bin/env sh
-set -e
+set -eu
 
-# Flutter invokes this script on Android builds. GitHub Actions provisions
-# the exact Gradle distribution (8.13) before Flutter runs the build.
-# No Gradle Wrapper JAR is used by this project.
-if [ -n "${GRADLE_HOME:-}" ] && [ -x "$GRADLE_HOME/bin/gradle" ]; then
-  exec "$GRADLE_HOME/bin/gradle" "$@"
-fi
+# This project intentionally uses a pinned Gradle installation from CI/local
+# environment instead of the broken legacy wrapper files that previously
+# allowed the GitHub runner's Gradle 9.x to be selected accidentally.
+REQUIRED_GRADLE_VERSION="8.13"
 
 if ! command -v gradle >/dev/null 2>&1; then
-  echo "ERROR: Gradle 8.14 is not available." >&2
-  echo "Run the project's GitHub Actions workflow or install Gradle 8.14 locally." >&2
+  echo "ERROR: Gradle ${REQUIRED_GRADLE_VERSION} is required but was not found." >&2
+  echo "Configure Gradle ${REQUIRED_GRADLE_VERSION} before running this script." >&2
   exit 127
+fi
+
+GRADLE_VERSION_OUTPUT="$(gradle --version 2>/dev/null || true)"
+if ! printf '%s\n' "$GRADLE_VERSION_OUTPUT" | grep -q "Gradle ${REQUIRED_GRADLE_VERSION}"; then
+  echo "ERROR: This project requires Gradle ${REQUIRED_GRADLE_VERSION}." >&2
+  echo "$GRADLE_VERSION_OUTPUT" >&2
+  exit 1
 fi
 
 exec gradle "$@"
