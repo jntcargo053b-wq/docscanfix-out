@@ -1,6 +1,7 @@
 @echo off
 rem Flutter invokes this script on Windows Android builds.
-rem Gradle is provisioned by GitHub Actions via setup-gradle (8.13).
+rem GitHub Actions provisions the exact Gradle 8.13 distribution.
+rem No Gradle Wrapper JAR is used by this project.
 where gradle >nul 2>&1
 if errorlevel 1 (
   echo ERROR: Gradle is not available on PATH.

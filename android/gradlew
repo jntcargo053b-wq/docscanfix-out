@@ -1,12 +1,16 @@
 #!/usr/bin/env sh
 set -e
 
-# Flutter invokes this script on Android builds. Gradle itself is provisioned
-# deterministically by GitHub Actions via gradle/actions/setup-gradle with
-# gradle-version: '8.13'. No Gradle Wrapper JAR is used by this project.
+# Flutter invokes this script on Android builds. GitHub Actions provisions
+# the exact Gradle distribution (8.13) before Flutter runs the build.
+# No Gradle Wrapper JAR is used by this project.
+if [ -n "${GRADLE_HOME:-}" ] && [ -x "$GRADLE_HOME/bin/gradle" ]; then
+  exec "$GRADLE_HOME/bin/gradle" "$@"
+fi
+
 if ! command -v gradle >/dev/null 2>&1; then
-  echo "ERROR: Gradle is not available on PATH." >&2
-  echo "Run gradle/actions/setup-gradle with gradle-version: '8.13' first." >&2
+  echo "ERROR: Gradle 8.13 is not available." >&2
+  echo "Run the project's GitHub Actions workflow or install Gradle 8.13 locally." >&2
   exit 127
 fi
 
