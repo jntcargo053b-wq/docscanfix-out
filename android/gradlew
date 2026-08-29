@@ -9,8 +9,8 @@ if [ -n "${GRADLE_HOME:-}" ] && [ -x "$GRADLE_HOME/bin/gradle" ]; then
 fi
 
 if ! command -v gradle >/dev/null 2>&1; then
-  echo "ERROR: Gradle 8.13 is not available." >&2
-  echo "Run the project's GitHub Actions workflow or install Gradle 8.13 locally." >&2
+  echo "ERROR: Gradle 8.14 is not available." >&2
+  echo "Run the project's GitHub Actions workflow or install Gradle 8.14 locally." >&2
   exit 127
 fi
 
