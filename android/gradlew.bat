@@ -1,34 +1,18 @@
-@ECHO OFF
-SETLOCAL ENABLEEXTENSIONS
-SET "APP_HOME=%~dp0"
-SET "PROPERTIES=%APP_HOME%gradle\wrapper\gradle-wrapper.properties"
+@echo off
+setlocal
+set "APP_HOME=%~dp0"
+set "WRAPPER_JAR=%APP_HOME%gradle\wrapper\gradle-wrapper.jar"
+set "WRAPPER_URL=https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
+set "WRAPPER_SHA256=81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f"
 
-FOR /F "tokens=2 delims==" %%A IN ('findstr /B "distributionUrl=" "%PROPERTIES%"') DO SET "DIST_URL=%%A"
-FOR /F "tokens=2 delims==" %%A IN ('findstr /B "distributionSha256Sum=" "%PROPERTIES%"') DO SET "DIST_SHA=%%A"
-SET "DIST_URL=%DIST_URL:\:=:%"
-FOR %%A IN ("%DIST_URL%") DO SET "ZIP_NAME=%%~nxA"
-SET "GRADLE_VERSION=%ZIP_NAME:gradle-=%"
-SET "GRADLE_VERSION=%GRADLE_VERSION:-bin.zip=%"
-SET "GRADLE_USER_HOME=%GRADLE_USER_HOME%"
-IF "%GRADLE_USER_HOME%"=="" SET "GRADLE_USER_HOME=%USERPROFILE%\.gradle"
-SET "DIST_DIR=%GRADLE_USER_HOME%\wrapper\dists\gradle-%GRADLE_VERSION%-bin"
-SET "DIST_ZIP=%DIST_DIR%\%ZIP_NAME%"
-SET "DIST_HOME=%DIST_DIR%\gradle-%GRADLE_VERSION%"
-
-IF NOT EXIST "%DIST_HOME%\bin\gradle.bat" (
-  IF NOT EXIST "%DIST_ZIP%" (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri '%DIST_URL%' -OutFile '%DIST_ZIP%'"
-    IF ERRORLEVEL 1 EXIT /B 1
-  )
-  FOR /F "tokens=*" %%A IN ('powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 '%DIST_ZIP%').Hash.ToLower()"') DO SET "ACTUAL_SHA=%%A"
-  IF /I NOT "%ACTUAL_SHA%"=="%DIST_SHA%" (
-    ECHO ERROR: Gradle distribution checksum mismatch.
-    DEL /Q "%DIST_ZIP%" >NUL 2>&1
-    EXIT /B 1
-  )
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Force '%DIST_ZIP%' '%DIST_DIR%'"
-  IF ERRORLEVEL 1 EXIT /B 1
+if not exist "%WRAPPER_JAR%" (
+  if not exist "%APP_HOME%gradle\wrapper" mkdir "%APP_HOME%gradle\wrapper"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; Invoke-WebRequest -UseBasicParsing -Uri '%WRAPPER_URL%' -OutFile '%WRAPPER_JAR%.part'; $actual=(Get-FileHash -Algorithm SHA256 '%WRAPPER_JAR%.part').Hash.ToLowerInvariant(); if ($actual -ne '%WRAPPER_SHA256%') { Remove-Item -Force '%WRAPPER_JAR%.part'; throw 'Gradle Wrapper JAR checksum mismatch' }; Move-Item -Force '%WRAPPER_JAR%.part' '%WRAPPER_JAR%'"
+  if errorlevel 1 exit /b 1
 )
 
-CALL "%DIST_HOME%\bin\gradle.bat" %*
-ENDLOCAL
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$actual=(Get-FileHash -Algorithm SHA256 '%WRAPPER_JAR%').Hash.ToLowerInvariant(); if ($actual -ne '%WRAPPER_SHA256%') { throw 'Gradle Wrapper JAR checksum mismatch' }"
+if errorlevel 1 exit /b 1
+
+java -classpath "%WRAPPER_JAR%" org.gradle.wrapper.GradleWrapperMain %*
+exit /b %ERRORLEVEL%

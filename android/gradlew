@@ -1,61 +1,44 @@
 #!/usr/bin/env sh
-set -eu
 
-APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PROPERTIES="$APP_HOME/gradle/wrapper/gradle-wrapper.properties"
+# Minimal, deterministic Gradle Wrapper bootstrap.
+# The actual build is always delegated to the official Gradle Wrapper JAR.
+# We only bootstrap the JAR itself when it is absent, then the JAR reads
+# gradle-wrapper.properties and downloads/verifies the declared distribution.
 
-GRADLE_VERSION=$(sed -n 's/^distributionUrl=.*gradle-\([^/]*\)-bin\.zip.*$/\1/p' "$PROPERTIES")
-GRADLE_SHA256=$(sed -n 's/^distributionSha256Sum=//p' "$PROPERTIES")
-: "${GRADLE_VERSION:?Missing Gradle version}"
-: "${GRADLE_SHA256:?Missing Gradle checksum}"
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+WRAPPER_URL="https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
+WRAPPER_SHA256="81a82aaea5abcc8ff68b3dfcb58b3c3c429378efd98e7433460610fecd7ae45f"
 
-# Prefer a provisioned Gradle binary (for example GitHub Actions setup-gradle).
-# This avoids relying on a possibly stale/corrupt wrapper cache.
-if command -v gradle >/dev/null 2>&1; then
-  exec "$(command -v gradle)" "$@"
-fi
-
-GRADLE_USER_HOME=${GRADLE_USER_HOME:-"$HOME/.gradle"}
-DIST_DIR="$GRADLE_USER_HOME/wrapper/dists/gradle-$GRADLE_VERSION-bin"
-DIST_ZIP="$DIST_DIR/gradle-$GRADLE_VERSION-bin.zip"
-DIST_HOME="$DIST_DIR/gradle-$GRADLE_VERSION"
-
-mkdir -p "$DIST_DIR"
-
-if [ ! -x "$DIST_HOME/bin/gradle" ]; then
-  if [ ! -f "$DIST_ZIP" ]; then
-    if command -v curl >/dev/null 2>&1; then
-      curl --fail --silent --show-error --location \
-        --output "$DIST_ZIP" \
-        "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
-    elif command -v wget >/dev/null 2>&1; then
-      wget -q -O "$DIST_ZIP" \
-        "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
-    else
-      echo "ERROR: curl or wget is required to download Gradle $GRADLE_VERSION." >&2
-      exit 1
-    fi
-  fi
-
-  ACTUAL_SHA256=$(sha256sum "$DIST_ZIP" | awk '{print $1}')
-  if [ "$ACTUAL_SHA256" != "$GRADLE_SHA256" ]; then
-    echo "ERROR: Gradle distribution checksum mismatch." >&2
-    echo "Expected: $GRADLE_SHA256" >&2
-    echo "Actual:   $ACTUAL_SHA256" >&2
-    rm -f "$DIST_ZIP"
-    exit 1
-  fi
-
-  rm -rf "$DIST_HOME"
-  mkdir -p "$DIST_HOME"
-  if command -v unzip >/dev/null 2>&1; then
-    unzip -q "$DIST_ZIP" -d "$DIST_DIR/.extract"
+if [ ! -f "$WRAPPER_JAR" ]; then
+  mkdir -p "$(dirname "$WRAPPER_JAR")"
+  tmp="$WRAPPER_JAR.part"
+  rm -f "$tmp"
+  if command -v curl >/dev/null 2>&1; then
+    curl --fail --silent --show-error --location --output "$tmp" "$WRAPPER_URL"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$tmp" "$WRAPPER_URL"
   else
-    echo "ERROR: unzip is required to install Gradle $GRADLE_VERSION." >&2
+    echo "ERROR: curl or wget is required to bootstrap the Gradle Wrapper." >&2
     exit 1
   fi
-  mv "$DIST_DIR/.extract/gradle-$GRADLE_VERSION" "$DIST_HOME"
-  rm -rf "$DIST_DIR/.extract"
+  actual="$(sha256sum "$tmp" | awk '{print $1}')"
+  if [ "$actual" != "$WRAPPER_SHA256" ]; then
+    rm -f "$tmp"
+    echo "ERROR: Gradle Wrapper JAR checksum mismatch." >&2
+    echo "Expected: $WRAPPER_SHA256" >&2
+    echo "Actual:   $actual" >&2
+    exit 1
+  fi
+  mv "$tmp" "$WRAPPER_JAR"
 fi
 
-exec "$DIST_HOME/bin/gradle" "$@"
+actual="$(sha256sum "$WRAPPER_JAR" | awk '{print $1}')"
+if [ "$actual" != "$WRAPPER_SHA256" ]; then
+  echo "ERROR: Gradle Wrapper JAR checksum mismatch." >&2
+  echo "Expected: $WRAPPER_SHA256" >&2
+  echo "Actual:   $actual" >&2
+  exit 1
+fi
+
+exec java -classpath "$WRAPPER_JAR" org.gradle.wrapper.GradleWrapperMain "$@"
