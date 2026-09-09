@@ -1,125 +1,150 @@
 # 📄 DocScan — Aplikasi Scanner Dokumen Flutter
 
-Aplikasi Android untuk scan dokumen dengan fitur:
-- 📷 **Kamera Scan** — Deteksi tepi dokumen otomatis
-- ✂️ **Crop Perspektif** — Koreksi sudut dan perspektif otomatis
-- 📑 **Export PDF** — Simpan dan bagikan sebagai PDF
-- 🔤 **OCR** — Baca teks dari gambar menggunakan Google ML Kit
+Aplikasi Android untuk memindai dokumen dengan deteksi tepi/crop, OCR, PDF, penyimpanan lokal, dan berbagi file.
 
----
+## Fitur
 
-## 🗂️ Struktur Project
+- 📷 **Scan Dokumen** — scanner native dengan deteksi tepi dan crop.
+- 📑 **Multi-page Review** — tambah, hapus, dan tinjau halaman sebelum disimpan.
+- 🔤 **OCR** — ekstraksi teks menggunakan Google ML Kit.
+- 📄 **Export PDF** — generate PDF dari hasil scan.
+- 🖼️ **Image Processing** — resize/enhance untuk kebutuhan OCR/PDF.
+- 💾 **Local Storage** — metadata dan halaman dokumen dikelola oleh storage service.
+- 📤 **Share/Open** — berbagi gambar/PDF dan membuka PDF dengan aplikasi eksternal.
+- 📱 **Barcode** — tersedia melalui flow barcode yang sudah ada di aplikasi.
 
-```
+## Struktur Project Aktif
+
+```text
 lib/
 ├── main.dart
 ├── models/
-│   └── scanned_document.dart          # Model data dokumen
+│   └── scanned_document.dart
 ├── services/
-│   ├── services/scanner_service.dart      # Kamera & scan dokumen
-│   ├── ocr_service.dart               # Google ML Kit OCR
-│   ├── pdf_service.dart               # Generate & share PDF
-│   ├── image_enhance_service.dart     # Resize, enhance, thumbnail
-│   ├── save_service.dart              # Simpan ke galeri
-│   └── document_storage_service.dart  # Penyimpanan lokal (JSON)
+│   ├── scanner_service.dart
+│   ├── ocr_service.dart
+│   ├── pdf_service.dart
+│   ├── image_enhance_service.dart
+│   ├── document_storage_service.dart
+│   ├── document_search_service.dart
+│   └── bulk_share_service.dart
 ├── screens/
-│   ├── home_screen.dart               # Daftar dokumen
-│   ├── document_detail_screen.dart    # Detail & OCR view
-│   ├── image_editor_screen.dart       # Edit gambar
+│   ├── home_screen.dart
+│   ├── document_detail_screen.dart
+│   ├── image_editor_screen.dart
 │   └── Scan/
-│       ├── scan_screen.dart           # Entry point scan flow
-│       ├── scan_controller.dart       # State & business logic
-│       ├── scan_body.dart             # Layout utama scan review
+│       ├── scan_screen.dart
+│       ├── scan_controller.dart
+│       ├── scan_body.dart
+│       ├── barcode_scan_screen.dart
 │       └── widgets/
-│           ├── scan_action_buttons.dart
 │           ├── scan_loading_overlay.dart
 │           ├── scan_ocr_section.dart
 │           ├── scan_page_carousel.dart
-│           └── scan_title_input.dart
+│           ├── scan_title_input.dart
+│           └── scan_action_buttons.dart
 ├── theme/
-│   └── app_theme.dart                 # Tema dark mode (Material 3)
+│   └── app_theme.dart
+├── utils/
+│   ├── file_hash.dart
+│   └── perf_probe.dart
 └── widgets/
-    ├── document_card.dart             # Kartu dokumen di list
-    ├── scan_preview.dart              # Preview halaman scan
-    └── empty_state.dart              # State kosong & action button
+    ├── document_card.dart
+    ├── scan_preview.dart
+    ├── bulk_progress_dialog.dart
+    └── empty_state.dart
 ```
 
----
+> File di luar flow aktif yang merupakan sisa implementasi lama dihapus untuk mencegah perubahan berikutnya diterapkan ke file yang salah.
 
-## 🚀 Setup & Build
+## Persyaratan
 
-### Prerequisites
-- Flutter SDK >= 3.3.0
-- Android Studio / VS Code
-- Android device atau emulator (API 21+)
+- Flutter SDK dengan Dart SDK yang memenuhi constraint di `pubspec.yaml`.
+- Android SDK / device API 21+
+- Java 17 untuk build Android
 
-### Install & Jalankan
+## Menjalankan Project
+
 ```bash
 flutter pub get
+flutter analyze
+flutter test
 flutter run
-
-# Release APK
-flutter build apk --release
-# Output: build/app/outputs/flutter-apk/app-release.apk
 ```
 
----
+## Build APK
 
-## 📦 Dependencies
+Debug:
 
-| Package | Versi | Fungsi |
-|---------|-------|--------|
-| `document_scanner_flutter` | ^0.4.0 | Deteksi tepi + crop perspektif |
-| `google_mlkit_text_recognition` | ^0.15.1 | OCR teks dari gambar |
-| `pdf` + `printing` | ^3.11.0 / ^5.14.2 | Generate & print PDF |
-| `image` | ^4.5.4 | Resize & enhance gambar (isolate) |
-| `image_picker` | ^1.2.1 | Pilih gambar dari galeri |
-| `saver_gallery` | ^3.0.10 | Simpan gambar ke galeri Android |
-| `permission_handler` | ^11.4.0 | Runtime permission kamera & storage |
-| `device_info_plus` | ^10.1.0 | SDK version Android (tanpa shell) |
-| `path_provider` | ^2.1.5 | Direktori dokumen & cache |
-| `share_plus` | ^10.1.4 | Share file PDF |
-| `open_file` | ^3.5.10 | Buka PDF di viewer eksternal |
+```bash
+flutter build apk --debug
+```
+
+Release:
+
+```bash
+flutter build apk --release
+```
+
+## Dependency Utama
+
+| Package | Versi di project | Fungsi |
+|---|---:|---|
+| `cunning_document_scanner` | ^2.2.0 | Scanner dokumen native |
+| `google_mlkit_text_recognition` | ^0.13.0 | OCR |
+| `pdf` | ^3.11.0 | Generate PDF |
+| `printing` | ^5.14.2 | PDF/print support |
+| `image` | ^4.5.4 | Image processing |
+| `image_picker` | ^1.2.1 | Import gambar |
+| `saver_gallery` | ^3.0.10 | Simpan ke galeri |
+| `permission_handler` | ^12.0.1 | Permission |
+| `device_info_plus` | ^10.1.0 | Informasi device |
+| `path_provider` | ^2.1.5 | Direktori aplikasi |
+| `share_plus` | ^10.1.4 | Share file |
+| `open_file` | ^3.5.10 | Membuka file eksternal |
 | `flutter_animate` | ^4.5.2 | Animasi UI |
-| `gap` | ^3.0.1 | Spacing widget |
+| `gap` | ^3.0.1 | Spacing |
 
----
+## Android
 
-## 🔧 Konfigurasi Android
+Konfigurasi Android harus tetap mengikuti file Gradle yang ada di repository. Java target build menggunakan 17.
 
-`AndroidManifest.xml` sudah mencakup:
-- `CAMERA`
-- `READ_EXTERNAL_STORAGE` / `WRITE_EXTERNAL_STORAGE`
-- `READ_MEDIA_IMAGES` (Android 13+)
-- `FOREGROUND_SERVICE_LOCATION`
-- FileProvider untuk sharing file
+Scanner Android menggunakan `AndroidScannerMode.base` pada flow aktif.
 
-| | |
-|---|---|
-| minSdkVersion | **21** (Android 5.0) |
-| targetSdkVersion | **34** (Android 14) |
+## GitHub Actions
 
----
+Workflow utama berada di:
 
-## 📱 Alur Penggunaan
+```text
+.github/workflows/build.yml
+```
 
-1. **Home** → Tap "Scan Dokumen" (permission kamera diminta di sini)
-2. **Scan** → Kamera terbuka, posisikan dokumen, otomatis crop perspektif
-3. **Review** → Lihat hasil scan, tambah halaman jika perlu
-4. **OCR** → Teks diekstrak otomatis di background (timeout 60 detik, partial result disimpan)
-5. **Simpan** → Dokumen tersimpan ke penyimpanan lokal + galeri
-6. **Detail** → Lihat semua halaman, salin teks, export/share PDF
+Pipeline melakukan:
 
----
+1. checkout repository;
+2. setup Java 17;
+3. setup Flutter stable;
+4. `flutter pub get`;
+5. `flutter analyze`;
+6. `flutter test`;
+7. build APK debug pada `build_branch`/manual run;
+8. build APK release saat tag `v*` dibuat;
+9. upload APK sebagai artifact.
 
-## 🛠️ Troubleshooting
+Workflow hygiene juga menolak release keystore (`.jks`/`.keystore`) yang masuk repository.
 
-**Camera permission denied**
-→ Izin diminta saat tombol Scan ditekan; jika ditolak permanen, buka Pengaturan → Aplikasi → DocScan → Izin → Kamera
+## Alur Penggunaan
 
-**OCR tidak berfungsi**
-→ ML Kit butuh koneksi internet untuk download model pertama kali
-→ Google Play Services harus aktif di device
+1. **Home** → mulai scan dokumen.
+2. **Scan** → ambil satu atau beberapa halaman.
+3. **Review** → tinjau hasil dan tambah/hapus halaman bila diperlukan.
+4. **OCR** → teks diproses oleh service OCR.
+5. **Simpan** → dokumen dan halaman disimpan melalui storage service.
+6. **Detail** → lihat dokumen, OCR, dan export/share PDF.
 
-**PDF tidak bisa dibuka**
-→ Install PDF viewer (Adobe Acrobat, Google PDF Viewer, dll)
+## Catatan Maintenance
+
+- Jangan menghidupkan kembali file legacy yang sudah dihapus jika tidak benar-benar diperlukan.
+- Perubahan scanner harus dilakukan pada `lib/screens/Scan/` yang aktif.
+- Jangan menyimpan `keystore.jks`, password signing, atau credential release di repository.
+- Sebelum merge perubahan penting, jalankan `flutter analyze`, `flutter test`, dan `flutter build apk --debug`.

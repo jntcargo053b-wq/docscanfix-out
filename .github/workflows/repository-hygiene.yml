@@ -1,0 +1,23 @@
+name: Repository Hygiene
+
+on:
+  pull_request:
+  push:
+    branches:
+      - build_branch
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Reject committed release keystores
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find . -type f \( -name '*.jks' -o -name '*.keystore' \) -not -path './.git/*' | grep -q .; then
+            echo 'Release keystore files must not be committed.'
+            exit 1
+          fi
