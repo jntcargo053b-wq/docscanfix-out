@@ -2,15 +2,15 @@
 set -e
 
 # Flutter invokes this script on Android builds. GitHub Actions provisions
-# Gradle 8.7 explicitly so Flutter 3.24.5 uses a compatible Gradle/Groovy toolchain.
+# Gradle 8.9 explicitly so Flutter 3.24.5 uses a compatible Gradle/Groovy toolchain.
 # No Gradle Wrapper JAR is used by this project.
 if [ -n "${GRADLE_HOME:-}" ] && [ -x "$GRADLE_HOME/bin/gradle" ]; then
   exec "$GRADLE_HOME/bin/gradle" "$@"
 fi
 
 if ! command -v gradle >/dev/null 2>&1; then
-  echo "ERROR: Gradle 8.7 is not available." >&2
-  echo "Run the project's GitHub Actions workflow or install Gradle 8.7 locally." >&2
+  echo "ERROR: Gradle 8.9 is not available." >&2
+  echo "Run the project's GitHub Actions workflow or install Gradle 8.9 locally." >&2
   exit 127
 fi
 
