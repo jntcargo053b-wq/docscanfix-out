@@ -43,7 +43,7 @@ class AppTheme {
         ),
         iconTheme: IconThemeData(color: textPrimary),
       ),
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: surface,
         elevation: 0,
         surfaceTintColor: Colors.transparent,
@@ -132,4 +132,10 @@ class AppTheme {
       ),
     );
   }
+}
+
+/// Compatibility extension for Flutter versions before Color.withValues().
+/// The project currently pins Flutter 3.24.x, where withValues() is unavailable.
+extension ColorCompatibility on Color {
+  Color withValues({double? alpha}) => withOpacity(alpha ?? a);
 }
