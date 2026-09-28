@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
+import 'document_page_viewer_screen.dart';
 import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
 import '../services/image_enhance_service.dart';
@@ -248,7 +249,16 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
               child: ImageGrid(
                 imagePaths: _doc.imagePaths,
                 onTap: (index) {
-                  // Navigasi ke fullscreen viewer jika ada
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => DocumentPageViewerScreen(
+                        imagePaths: _doc.imagePaths,
+                        initialIndex: index,
+                        documentTitle: _doc.title,
+                      ),
+                    ),
+                  );
                 },
               ),
             ),
