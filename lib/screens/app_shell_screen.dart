@@ -24,7 +24,7 @@ class _AppShellScreenState extends State<AppShellScreen> {
         const HomeScreen(),
         SearchDocumentsScreen(refreshVersion: _refreshVersion),
         GalleryScreen(refreshVersion: _refreshVersion),
-        const SettingsScreen(),
+        SettingsScreen(refreshVersion: _refreshVersion),
       ];
 
   @override
