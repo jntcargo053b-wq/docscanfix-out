@@ -95,7 +95,7 @@ flutter build apk --release
 | `pdf` | ^3.11.0 | Generate PDF |
 | `printing` | ^5.14.2 | PDF/print support |
 | `image` | ^4.5.4 | Image processing |
-| `image_picker` | ^1.2.1 | Import gambar |
+| `image_picker` | ^1.1.2 | Import gambar |
 | `saver_gallery` | ^3.0.10 | Simpan ke galeri |
 | `permission_handler` | ^12.0.1 | Permission |
 | `device_info_plus` | ^10.1.0 | Informasi device |
@@ -127,7 +127,7 @@ Pipeline melakukan:
 4. `flutter pub get`;
 5. `flutter analyze`;
 6. `flutter test`;
-7. build APK debug pada `build_branch`/manual run;
+7. build APK debug pada pull request ke `build_branch`, push ke `build_branch`, atau manual run;
 8. build APK release saat tag `v*` dibuat;
 9. upload APK sebagai artifact.
 

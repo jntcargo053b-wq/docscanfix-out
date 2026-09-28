@@ -2,6 +2,9 @@ name: Build and Release APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - build_branch
   push:
     branches:
       - build_branch
@@ -28,20 +31,14 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: '3.29.3'
           channel: stable
           cache: true
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Verify Flutter, Dart and Gradle versions
+      - name: Verify Flutter and Dart versions
         run: |
           flutter --version
           dart --version
-          gradle --version
 
       - name: Flutter Doctor
         run: flutter doctor -v
@@ -55,35 +52,34 @@ jobs:
       - name: Flutter Test
         run: flutter test
 
-      - name: Restore Flutter Groovy XML module
+      # Use Gradle 8.9 explicitly. Flutter 3.29.3's Gradle plugin is not
+      # compatible with Gradle 9.x's embedded Groovy 4 runtime.
+      - name: Setup compatible Gradle
         shell: bash
         run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          flutter_root = Path(os.environ['FLUTTER_ROOT'])
-          gradle_file = flutter_root / 'packages' / 'flutter_tools' / 'gradle' / 'build.gradle.kts'
-          text = gradle_file.read_text(encoding='utf-8')
-          dependency = 'implementation("org.codehaus.groovy:groovy-xml:3.0.17")'
-
-          if dependency not in text:
-              marker = 'dependencies {\n'
-              if marker not in text:
-                  raise SystemExit(f'Unable to locate dependencies block in {gradle_file}')
-              text = text.replace(marker, marker + f'    {dependency}\n', 1)
-              gradle_file.write_text(text, encoding='utf-8')
-
-          print(f'Patched Flutter Gradle plugin: {gradle_file}')
-          print(f'Groovy XML dependency present: {dependency in gradle_file.read_text(encoding="utf-8")}')
-          PY
+          set -euo pipefail
+          gradle_version="8.9"
+          gradle_dir="$RUNNER_TEMP/gradle-$gradle_version"
+          curl --fail --silent --show-error --location \
+            "https://services.gradle.org/distributions/gradle-$gradle_version-bin.zip" \
+            --output "$RUNNER_TEMP/gradle.zip"
+          unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          # gradle/actions/setup-gradle may set GRADLE_HOME to its own
+          # Gradle 9.x installation. Flutter calls android/gradlew, which
+          # prefers GRADLE_HOME over PATH, so override both explicitly.
+          echo "GRADLE_HOME=$RUNNER_TEMP/gradle-$gradle_version" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gradle-$gradle_version/bin" >> "$GITHUB_PATH"
+          export GRADLE_HOME="$RUNNER_TEMP/gradle-$gradle_version"
+          export PATH="$GRADLE_HOME/bin:$PATH"
+          gradle --version
+          test "$(gradle --version | sed -n 's/^Gradle \([0-9.]*\)$/\1/p' | head -n 1)" = "$gradle_version"
 
       - name: Build Debug APK
-        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch'
-        run: flutter build apk --debug
+        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+        run: flutter build apk --debug --verbose
 
       - name: Upload Debug APK
-        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch'
+        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
@@ -92,7 +88,7 @@ jobs:
 
       - name: Build Release APK
         if: startsWith(github.ref, 'refs/tags/')
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --split-per-abi --verbose
 
       - name: Upload Release APKs
         if: startsWith(github.ref, 'refs/tags/')
