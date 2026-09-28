@@ -31,20 +31,14 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: '3.29.3'
           channel: stable
           cache: true
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Verify Flutter, Dart and Gradle versions
+      - name: Verify Flutter and Dart versions
         run: |
           flutter --version
           dart --version
-          gradle --version
 
       - name: Flutter Doctor
         run: flutter doctor -v
@@ -58,32 +52,9 @@ jobs:
       - name: Flutter Test
         run: flutter test
 
-      - name: Restore Flutter Groovy XML module
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          flutter_root = Path(os.environ['FLUTTER_ROOT'])
-          gradle_file = flutter_root / 'packages' / 'flutter_tools' / 'gradle' / 'build.gradle.kts'
-          text = gradle_file.read_text(encoding='utf-8')
-          dependency = 'implementation("org.codehaus.groovy:groovy-xml:3.0.17")'
-
-          if dependency not in text:
-              marker = 'dependencies {\n'
-              if marker not in text:
-                  raise SystemExit(f'Unable to locate dependencies block in {gradle_file}')
-              text = text.replace(marker, marker + f'    {dependency}\n', 1)
-              gradle_file.write_text(text, encoding='utf-8')
-
-          print(f'Patched Flutter Gradle plugin: {gradle_file}')
-          print(f'Groovy XML dependency present: {dependency in gradle_file.read_text(encoding="utf-8")}')
-          PY
-
       - name: Build Debug APK
         if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-        run: flutter build apk --debug
+        run: flutter build apk --debug --verbose
 
       - name: Upload Debug APK
         if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
@@ -95,7 +66,7 @@ jobs:
 
       - name: Build Release APK
         if: startsWith(github.ref, 'refs/tags/')
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --split-per-abi --verbose
 
       - name: Upload Release APKs
         if: startsWith(github.ref, 'refs/tags/')
