@@ -40,10 +40,12 @@ void main() {
       await first.writeAsString('page one');
       await second.writeAsString('page two');
 
-      expect(
-        await hashFileStreaming(first.path),
-        isNot(await hashFileStreaming(second.path)),
-      );
+      final firstHash = await hashFileStreaming(first.path);
+      final secondHash = await hashFileStreaming(second.path);
+
+      expect(firstHash, isNotNull);
+      expect(secondHash, isNotNull);
+      expect(firstHash, isNot(equals(secondHash)));
     });
 
     test('returns null for a missing file instead of throwing', () async {
