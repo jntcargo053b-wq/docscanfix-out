@@ -51,8 +51,13 @@ class DocumentSearchService {
         ? null
         : DateTime(endDate.year, endDate.month, endDate.day + 1);
     final result = matches.where((document) {
-      if (start != null && document.createdAt.isBefore(start)) return false;
-      if (endExclusive != null && !document.createdAt.isBefore(endExclusive)) {
+      final createdDate = DateTime(
+        document.createdAt.year,
+        document.createdAt.month,
+        document.createdAt.day,
+      );
+      if (start != null && createdDate.isBefore(start)) return false;
+      if (endExclusive != null && !createdDate.isBefore(endExclusive)) {
         return false;
       }
       return true;
@@ -61,11 +66,14 @@ class DocumentSearchService {
     switch (sortOrder) {
       case DocumentSortOrder.newest:
         result.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
       case DocumentSortOrder.oldest:
         result.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        break;
       case DocumentSortOrder.title:
         result.sort((a, b) =>
             a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
       case null:
         break;
     }
