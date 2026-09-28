@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import '../models/scanned_document.dart';
 
+enum DocumentSortOrder { newest, oldest, title }
+
 /// Menjalankan pencarian/filter dokumen.
 ///
 /// Memilih jalur pencarian berdasarkan ukuran koleksi DAN perkiraan total
@@ -17,9 +19,15 @@ class DocumentSearchService {
 
   static Future<List<ScannedDocument>> filter(
     List<ScannedDocument> documents,
-    String query,
-  ) async {
-    if (query.trim().isEmpty) return documents;
+    String query, {
+    DateTime? startDate,
+    DateTime? endDate,
+    DocumentSortOrder? sortOrder,
+  }) async {
+    final hasQuery = query.trim().isNotEmpty;
+    if (!hasQuery && startDate == null && endDate == null && sortOrder == null) {
+      return documents;
+    }
 
     final normalized = query.trim().toLowerCase();
     // Avoid isolate spawn/serialization overhead for genuinely small searches,
@@ -29,12 +37,47 @@ class DocumentSearchService {
       0,
       (sum, d) => sum + d.title.length + (d.extractedText?.length ?? 0),
     );
-    if (documents.length < _smallCollectionThreshold &&
-        estimatedText < _largeTextThreshold) {
-      return _filterSync(_FilterArgs(documents, normalized));
-    }
+    final matches = !hasQuery
+        ? documents
+        : documents.length < _smallCollectionThreshold &&
+                estimatedText < _largeTextThreshold
+            ? _filterSync(_FilterArgs(documents, normalized))
+            : await compute(_filterSync, _FilterArgs(documents, normalized));
 
-    return compute(_filterSync, _FilterArgs(documents, normalized));
+    final start = startDate == null
+        ? null
+        : DateTime(startDate.year, startDate.month, startDate.day);
+    final endExclusive = endDate == null
+        ? null
+        : DateTime(endDate.year, endDate.month, endDate.day + 1);
+    final result = matches.where((document) {
+      final createdDate = DateTime(
+        document.createdAt.year,
+        document.createdAt.month,
+        document.createdAt.day,
+      );
+      if (start != null && createdDate.isBefore(start)) return false;
+      if (endExclusive != null && !createdDate.isBefore(endExclusive)) {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    switch (sortOrder) {
+      case DocumentSortOrder.newest:
+        result.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        break;
+      case DocumentSortOrder.oldest:
+        result.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        break;
+      case DocumentSortOrder.title:
+        result.sort((a, b) =>
+            a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+        break;
+      case null:
+        break;
+    }
+    return result;
   }
 }
 
