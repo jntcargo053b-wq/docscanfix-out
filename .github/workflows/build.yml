@@ -64,8 +64,15 @@ jobs:
             "https://services.gradle.org/distributions/gradle-$gradle_version-bin.zip" \
             --output "$RUNNER_TEMP/gradle.zip"
           unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
+          # gradle/actions/setup-gradle may set GRADLE_HOME to its own
+          # Gradle 9.x installation. Flutter calls android/gradlew, which
+          # prefers GRADLE_HOME over PATH, so override both explicitly.
+          echo "GRADLE_HOME=$RUNNER_TEMP/gradle-$gradle_version" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/gradle-$gradle_version/bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/gradle-$gradle_version/bin/gradle" --version
+          export GRADLE_HOME="$RUNNER_TEMP/gradle-$gradle_version"
+          export PATH="$GRADLE_HOME/bin:$PATH"
+          gradle --version
+          test "$(gradle --version | sed -n 's/^Gradle \([0-9.]*\)$/\1/p' | head -n 1)" = "$gradle_version"
 
       - name: Build Debug APK
         if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
