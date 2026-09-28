@@ -9,7 +9,10 @@ import '../theme/app_theme.dart';
 import 'document_detail_screen.dart';
 
 class SearchDocumentsScreen extends StatefulWidget {
-  const SearchDocumentsScreen({super.key});
+  const SearchDocumentsScreen({super.key, this.refreshVersion = 0});
+
+  /// Changes when the retained tab is selected again by [AppShellScreen].
+  final int refreshVersion;
 
   @override
   State<SearchDocumentsScreen> createState() => _SearchDocumentsScreenState();
@@ -28,6 +31,14 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant SearchDocumentsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshVersion != widget.refreshVersion) {
+      _load();
+    }
   }
 
   @override
