@@ -8,6 +8,8 @@ import '../services/document_storage_service.dart';
 import '../theme/app_theme.dart';
 import 'document_detail_screen.dart';
 
+enum _DocumentSortOrder { newest, oldest, title }
+
 class SearchDocumentsScreen extends StatefulWidget {
   const SearchDocumentsScreen({super.key, this.refreshVersion = 0});
 
@@ -26,6 +28,8 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
   List<ScannedDocument> _results = [];
   bool _loading = true;
   int _generation = 0;
+  DateTimeRange? _dateRange;
+  _DocumentSortOrder _sortOrder = _DocumentSortOrder.newest;
 
   @override
   void initState() {
@@ -77,8 +81,46 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
     final generation = ++_generation;
     final result = await DocumentSearchService.filter(_allDocuments, query);
     if (!mounted || generation != _generation) return;
-    setState(() => _results = result);
+    final filtered = result.where((document) {
+      final range = _dateRange;
+      if (range == null) return true;
+      final date = document.createdAt;
+      final start = DateTime(range.start.year, range.start.month, range.start.day);
+      final endExclusive = DateTime(
+        range.end.year, range.end.month, range.end.day + 1,
+      );
+      return !date.isBefore(start) && date.isBefore(endExclusive);
+    }).toList();
+    switch (_sortOrder) {
+      case _DocumentSortOrder.newest:
+        filtered.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      case _DocumentSortOrder.oldest:
+        filtered.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      case _DocumentSortOrder.title:
+        filtered.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    }
+    setState(() => _results = filtered);
   }
+
+  Future<void> _chooseDateRange() async {
+    final now = DateTime.now();
+    final selected = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      initialDateRange: _dateRange,
+      helpText: 'Filter tanggal dokumen',
+      saveText: 'Terapkan',
+      cancelText: 'Batal',
+      confirmText: 'Terapkan',
+    );
+    if (!mounted || selected == null) return;
+    setState(() => _dateRange = selected);
+    await _search(_queryController.text);
+  }
+
+  String _shortDate(DateTime date) =>
+      '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
 
   Future<void> _openDocument(ScannedDocument document) async {
     await Navigator.push(
@@ -122,6 +164,70 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
                           icon: const Icon(Icons.close),
                         ),
                 ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _chooseDateRange,
+                    icon: const Icon(Icons.date_range_rounded, size: 18),
+                    label: Text(_dateRange == null
+                        ? 'Filter tanggal'
+                        : '${_shortDate(_dateRange!.start)} – ${_shortDate(_dateRange!.end)}'),
+                  ),
+                  if (_dateRange != null) ...[
+                    const SizedBox(width: 6),
+                    IconButton(
+                      tooltip: 'Hapus filter tanggal',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        setState(() => _dateRange = null);
+                        _search(_queryController.text);
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                  const Spacer(),
+                  PopupMenuButton<_DocumentSortOrder>(
+                    tooltip: 'Urutkan dokumen',
+                    initialValue: _sortOrder,
+                    onSelected: (value) {
+                      setState(() => _sortOrder = value);
+                      _search(_queryController.text);
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: _DocumentSortOrder.newest,
+                        child: Text('Terbaru'),
+                      ),
+                      PopupMenuItem(
+                        value: _DocumentSortOrder.oldest,
+                        child: Text('Terlama'),
+                      ),
+                      PopupMenuItem(
+                        value: _DocumentSortOrder.title,
+                        child: Text('Nama A–Z'),
+                      ),
+                    ],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.sort_rounded, size: 20),
+                          const SizedBox(width: 4),
+                          Text(switch (_sortOrder) {
+                            _DocumentSortOrder.newest => 'Terbaru',
+                            _DocumentSortOrder.oldest => 'Terlama',
+                            _DocumentSortOrder.title => 'Nama A–Z',
+                          }),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             Expanded(
