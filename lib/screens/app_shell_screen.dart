@@ -20,12 +20,12 @@ class _AppShellScreenState extends State<AppShellScreen> {
   int _selectedIndex = 0;
   int _refreshVersion = 0;
 
-  final List<Widget> _screens = const [
-    HomeScreen(),
-    SearchDocumentsScreen(refreshVersion: _refreshVersion),
-    GalleryScreen(refreshVersion: _refreshVersion),
-    SettingsScreen(),
-  ];
+  List<Widget> get _screens => [
+        const HomeScreen(),
+        SearchDocumentsScreen(refreshVersion: _refreshVersion),
+        GalleryScreen(refreshVersion: _refreshVersion),
+        const SettingsScreen(),
+      ];
 
   @override
   Widget build(BuildContext context) {
