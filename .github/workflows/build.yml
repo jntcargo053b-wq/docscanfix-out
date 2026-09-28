@@ -2,6 +2,9 @@ name: Build and Release APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - build_branch
   push:
     branches:
       - build_branch
@@ -79,11 +82,11 @@ jobs:
           PY
 
       - name: Build Debug APK
-        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch'
+        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
         run: flutter build apk --debug
 
       - name: Upload Debug APK
-        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch'
+        if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
