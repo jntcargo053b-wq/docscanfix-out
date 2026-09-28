@@ -52,6 +52,32 @@ jobs:
       - name: Flutter Test
         run: flutter test
 
+      # Flutter 3.29.3's Gradle plugin imports groovy.xml.QName.
+      # Restore the Groovy XML module omitted from its Gradle plugin classpath.
+      - name: Restore Flutter Groovy XML module
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          flutter_root = Path(os.environ["FLUTTER_ROOT"])
+          gradle_file = flutter_root / "packages" / "flutter_tools" / "gradle" / "build.gradle.kts"
+          text = gradle_file.read_text(encoding="utf-8")
+          dependency = 'implementation("org.codehaus.groovy:groovy-xml:3.0.17")'
+
+          if dependency not in text:
+              marker = "dependencies {\n"
+              if marker not in text:
+                  raise SystemExit(f"Unable to locate dependencies block in {gradle_file}")
+              text = text.replace(marker, marker + f"    {dependency}\n", 1)
+              gradle_file.write_text(text, encoding="utf-8")
+
+          if dependency not in gradle_file.read_text(encoding="utf-8"):
+              raise SystemExit("Groovy XML dependency was not applied")
+          print(f"Groovy XML dependency configured in {gradle_file}")
+          PY
+
       - name: Build Debug APK
         if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
         run: flutter build apk --debug --verbose
