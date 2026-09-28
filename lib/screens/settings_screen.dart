@@ -5,7 +5,10 @@ import '../services/document_storage_service.dart';
 import '../theme/app_theme.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.refreshVersion = 0});
+
+  /// Changes when the retained tab is selected again by [AppShellScreen].
+  final int refreshVersion;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -21,6 +24,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadSummary();
+  }
+
+  @override
+  void didUpdateWidget(covariant SettingsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshVersion != widget.refreshVersion) {
+      _loadSummary();
+    }
   }
 
   Future<void> _loadSummary() async {
