@@ -8,7 +8,10 @@ import '../theme/app_theme.dart';
 import 'document_detail_screen.dart';
 
 class GalleryScreen extends StatefulWidget {
-  const GalleryScreen({super.key});
+  const GalleryScreen({super.key, this.refreshVersion = 0});
+
+  /// Changes when the retained tab is selected again by [AppShellScreen].
+  final int refreshVersion;
 
   @override
   State<GalleryScreen> createState() => _GalleryScreenState();
@@ -23,6 +26,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant GalleryScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshVersion != widget.refreshVersion) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
