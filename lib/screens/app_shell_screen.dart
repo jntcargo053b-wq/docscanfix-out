@@ -18,11 +18,12 @@ class AppShellScreen extends StatefulWidget {
 
 class _AppShellScreenState extends State<AppShellScreen> {
   int _selectedIndex = 0;
+  int _refreshVersion = 0;
 
   final List<Widget> _screens = const [
     HomeScreen(),
-    SearchDocumentsScreen(),
-    GalleryScreen(),
+    SearchDocumentsScreen(refreshVersion: _refreshVersion),
+    GalleryScreen(refreshVersion: _refreshVersion),
     SettingsScreen(),
   ];
 
@@ -37,7 +38,13 @@ class _AppShellScreenState extends State<AppShellScreen> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
-          setState(() => _selectedIndex = index);
+          setState(() {
+            _selectedIndex = index;
+            // IndexedStack keeps tab states alive. Bump this token whenever
+            // Search/Gallery is selected so those screens reload persisted
+            // documents after scans, edits, or deletions on another tab.
+            if (index == 1 || index == 2) _refreshVersion++;
+          });
         },
         backgroundColor: AppTheme.surface,
         indicatorColor: AppTheme.primary.withValues(alpha: 0.13),
