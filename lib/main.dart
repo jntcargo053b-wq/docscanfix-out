@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'screens/home_screen.dart';
+import 'screens/app_shell_screen.dart';
 import 'services/document_storage_service.dart';
 import 'services/scanner_service.dart';
 import 'theme/app_theme.dart';
@@ -48,7 +48,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const HomeScreen(),
+      home: const AppShellScreen(),
     );
   }
 }
