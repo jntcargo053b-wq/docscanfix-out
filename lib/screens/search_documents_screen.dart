@@ -143,6 +143,7 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
                       : IconButton(
                           tooltip: 'Hapus pencarian',
                           onPressed: () {
+                            _debounce?.cancel();
                             _queryController.clear();
                             _search('');
                             setState(() {});
