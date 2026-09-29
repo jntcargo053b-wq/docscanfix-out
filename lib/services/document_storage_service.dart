@@ -233,6 +233,10 @@ class DocumentStorageService {
   Future<void> _saveLocked() async {
     if (_cachedDocuments == null) return;
     _writeTimer?.cancel();
+    // An immediate save supersedes any scheduled debounced write. Clear the
+    // pending marker as well, otherwise invalidateCache() may perform an
+    // unnecessary second write after the timer has been cancelled.
+    _writePending = false;
     try {
       final jsonStr = json.encode(
         _cachedDocuments!.map((d) => d.toJson()).toList(),
