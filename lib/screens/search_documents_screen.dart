@@ -26,6 +26,7 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
   List<ScannedDocument> _results = [];
   bool _loading = true;
   int _generation = 0;
+  int _loadGeneration = 0;
   DateTimeRange? _dateRange;
   DocumentSortOrder _sortOrder = DocumentSortOrder.newest;
 
@@ -51,9 +52,10 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
   }
 
   Future<void> _load() async {
+    final loadGeneration = ++_loadGeneration;
     try {
       final docs = await _storage.loadDocuments();
-      if (!mounted) return;
+      if (!mounted || loadGeneration != _loadGeneration) return;
       setState(() {
         _allDocuments = docs;
         _results = docs;
@@ -61,7 +63,7 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
       });
       await _search(_queryController.text);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || loadGeneration != _loadGeneration) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Gagal memuat dokumen: $error')),
