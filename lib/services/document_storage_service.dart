@@ -114,10 +114,26 @@ class DocumentStorageService {
               ? await compute(_parseDocumentsJson, jsonStr)
               : _parseDocumentsJson(jsonStr);
           _cacheValid = true;
-          // Best-effort repair of the primary metadata file.
+          // Repair the primary through a complete temporary file rather
+          // than copying directly over it. If the app stops during recovery,
+          // the known-good .bak remains untouched and can be used again.
           try {
-            await backup.copy(file.path);
-          } catch (_) {}
+            final restoreFile = File('${file.path}.restore.tmp');
+            await restoreFile.writeAsString(jsonStr, flush: true);
+            try {
+              await restoreFile.rename(file.path);
+            } catch (_) {
+              // Some platforms do not replace an existing destination on
+              // rename. The validated backup remains available if retry fails.
+              if (await file.exists()) {
+                await file.delete();
+              }
+              await restoreFile.rename(file.path);
+            }
+          } catch (_) {
+            // Recovery data is already loaded in memory; keep it available
+            // even if best-effort repair of the primary file fails.
+          }
           return List.unmodifiable(_cachedDocuments!);
         }
       } catch (_) {}
