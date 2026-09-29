@@ -38,11 +38,18 @@ class DocumentStorageService {
   // while making add/update/delete/upsert safe under concurrent calls.
   Future<void> _mutationLock = Future<void>.value();
 
+  // Version of the metadata/cache state. A disk read that started before a
+  // mutation must not publish its older snapshot after that mutation finishes.
+  int _loadGeneration = 0;
+
   Future<T> _withMutationLock<T>(Future<T> Function() action) async {
     final previous = _mutationLock;
     final release = Completer<void>();
     _mutationLock = release.future;
     await previous;
+    // Invalidate in-flight cache-miss reads before the mutation reads or
+    // changes state. Reads started inside the action capture this new version.
+    _loadGeneration++;
     try {
       return await action();
     } finally {
@@ -83,21 +90,31 @@ class DocumentStorageService {
       return List.unmodifiable(_cachedDocuments!);
     }
 
+    // Do not let an older async disk read overwrite the cache after a
+    // mutation has started. The caller still receives its own read snapshot,
+    // but only the current generation may publish shared cache state.
+    final generation = _loadGeneration;
+
     try {
       final file = await _metaFilePath;
       if (!await file.exists()) {
-        _cachedDocuments = [];
-        _cacheValid = true;
+        if (generation == _loadGeneration) {
+          _cachedDocuments = [];
+          _cacheValid = true;
+        }
         return [];
       }
 
       final jsonStr = await file.readAsString();
       final fileIsLarge = jsonStr.length > _largeMetaFileBytes;
-      _cachedDocuments = fileIsLarge
+      final documents = fileIsLarge
           ? await compute(_parseDocumentsJson, jsonStr)
           : _parseDocumentsJson(jsonStr);
-      _cacheValid = true;
-      return List.unmodifiable(_cachedDocuments!);
+      if (generation == _loadGeneration) {
+        _cachedDocuments = documents;
+        _cacheValid = true;
+      }
+      return List.unmodifiable(documents);
     } catch (e) {
       // Never silently convert metadata corruption/I/O failure into an empty
       // database. If the primary metadata is damaged, try the last known-good
@@ -110,10 +127,13 @@ class DocumentStorageService {
         if (await backup.exists()) {
           final jsonStr = await backup.readAsString();
           final fileIsLarge = jsonStr.length > _largeMetaFileBytes;
-          _cachedDocuments = fileIsLarge
+          final documents = fileIsLarge
               ? await compute(_parseDocumentsJson, jsonStr)
               : _parseDocumentsJson(jsonStr);
-          _cacheValid = true;
+          if (generation == _loadGeneration) {
+            _cachedDocuments = documents;
+            _cacheValid = true;
+          }
           // Repair the primary through a complete temporary file rather
           // than copying directly over it. If the app stops during recovery,
           // the known-good .bak remains untouched and can be used again.
@@ -134,7 +154,7 @@ class DocumentStorageService {
             // Recovery data is already loaded in memory; keep it available
             // even if best-effort repair of the primary file fails.
           }
-          return List.unmodifiable(_cachedDocuments!);
+          return List.unmodifiable(documents);
         }
       } catch (_) {}
       _cacheValid = false;
