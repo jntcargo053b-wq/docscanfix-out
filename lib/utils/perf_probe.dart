@@ -22,7 +22,7 @@ import 'package:flutter/foundation.dart';
 /// dijalankan native (device/emulator asli), BUKAN di web.
 class PerfProbe {
   final String label;
-  final List<_Checkpoint> _checkpoints = [];
+  final List<PerfCheckpoint> _checkpoints = [];
   final int _startRss;
   final Stopwatch _stopwatch = Stopwatch()..start();
 
@@ -42,7 +42,7 @@ class PerfProbe {
   /// Catat satu titik ukur bernama (mis. nama halaman/tahap).
   void mark(String name) {
     final rss = _safeRss();
-    _checkpoints.add(_Checkpoint(
+    _checkpoints.add(PerfCheckpoint(
       name: name,
       elapsedMs: _stopwatch.elapsedMilliseconds,
       rssBytes: rss,
@@ -77,12 +77,12 @@ class PerfProbe {
   }
 }
 
-class _Checkpoint {
+class PerfCheckpoint {
   final String name;
   final int elapsedMs;
   final int rssBytes;
   final int rssDeltaFromStartBytes;
-  _Checkpoint({
+  PerfCheckpoint({
     required this.name,
     required this.elapsedMs,
     required this.rssBytes,
@@ -95,7 +95,7 @@ class PerfReport {
   final int totalMs;
   final int startRssBytes;
   final int peakRssBytes;
-  final List<_Checkpoint> checkpoints;
+  final List<PerfCheckpoint> checkpoints;
 
   PerfReport({
     required this.label,
