@@ -156,6 +156,10 @@ class ScanController extends ChangeNotifier {
     // pun di disk sempat berubah.
     final existingHashes = await _hashAll(_imagePaths);
 
+    // Hashing yields to the event loop; the screen may have been closed
+    // while it ran. Do not pass a stale BuildContext to the scanner.
+    if (!context.mounted) return;
+
     try {
       final images = await _scannerService.scanDocument(context);
 
