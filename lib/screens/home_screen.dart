@@ -685,6 +685,9 @@ class _HomeScreenState extends State<HomeScreen> {
           : () async {
               setState(() => _isScanning = true);
               final status = await Permission.camera.request();
+              // Permission request can outlive this screen. Check before
+              // using its BuildContext to navigate.
+              if (!mounted) return;
               if (status.isGranted) {
                 final result = await Navigator.push(
                   context,
