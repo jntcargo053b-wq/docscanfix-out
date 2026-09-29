@@ -154,13 +154,16 @@ class ScanController extends ChangeNotifier {
     // bisa diandalkan: duplikat asli lolos, atau halaman lama yang masih
     // valid salah dianggap identik. Snapshot dulu di sini, sebelum apa
     // pun di disk sempat berubah.
-    final existingHashes = await _hashAll(_imagePaths);
-
-    // Hashing yields to the event loop; the screen may have been closed
-    // while it ran. Do not pass a stale BuildContext to the scanner.
-    if (!context.mounted) return;
-
     try {
+      // Hashing can fail if the isolate cannot start. Keep it inside the
+      // same error boundary as scanning so the controller does not remain
+      // stuck in ScanStatus.scanning after an unexpected hashing failure.
+      final existingHashes = await _hashAll(_imagePaths);
+
+      // Hashing yields to the event loop; the screen may have been closed
+      // while it ran. Do not pass a stale BuildContext to the scanner.
+      if (!context.mounted) return;
+
       final images = await _scannerService.scanDocument(context);
 
       if (images == null || images.isEmpty) {
