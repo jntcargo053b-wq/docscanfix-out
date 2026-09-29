@@ -205,9 +205,9 @@ class _SearchDocumentsScreenState extends State<SearchDocumentsScreen> {
                           const Icon(Icons.sort_rounded, size: 20),
                           const SizedBox(width: 4),
                           Text(switch (_sortOrder) {
-                            _DocumentSortOrder.newest => 'Terbaru',
-                            _DocumentSortOrder.oldest => 'Terlama',
-                            _DocumentSortOrder.title => 'Nama A–Z',
+                            DocumentSortOrder.newest => 'Terbaru',
+                            DocumentSortOrder.oldest => 'Terlama',
+                            DocumentSortOrder.title => 'Nama A–Z',
                           }),
                         ],
                       ),
