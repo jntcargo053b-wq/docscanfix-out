@@ -134,30 +134,34 @@ class DocumentStorageService {
             _cachedDocuments = documents;
             _cacheValid = true;
           }
-          // Repair the primary through a complete temporary file rather
-          // than copying directly over it. If the app stops during recovery,
-          // the known-good .bak remains untouched and can be used again.
-          try {
-            final restoreFile = File('${file.path}.restore.tmp');
-            await restoreFile.writeAsString(jsonStr, flush: true);
+          // Repair the primary only if this read still owns the current
+          // generation. Otherwise a stale backup could overwrite metadata
+          // that a concurrent mutation has already saved.
+          if (generation == _loadGeneration) {
             try {
-              await restoreFile.rename(file.path);
-            } catch (_) {
-              // Some platforms do not replace an existing destination on
-              // rename. The validated backup remains available if retry fails.
-              if (await file.exists()) {
-                await file.delete();
+              final restoreFile = File('${file.path}.restore.tmp');
+              await restoreFile.writeAsString(jsonStr, flush: true);
+              try {
+                await restoreFile.rename(file.path);
+              } catch (_) {
+                // Some platforms do not replace an existing destination on
+                // rename. The validated backup remains available if retry fails.
+                if (await file.exists()) {
+                  await file.delete();
+                }
+                await restoreFile.rename(file.path);
               }
-              await restoreFile.rename(file.path);
+            } catch (_) {
+              // Recovery data is already loaded in memory; keep it available
+              // even if best-effort repair of the primary file fails.
             }
-          } catch (_) {
-            // Recovery data is already loaded in memory; keep it available
-            // even if best-effort repair of the primary file fails.
           }
           return List.unmodifiable(documents);
         }
       } catch (_) {}
-      _cacheValid = false;
+      if (generation == _loadGeneration) {
+        _cacheValid = false;
+      }
       rethrow;
     }
   }
