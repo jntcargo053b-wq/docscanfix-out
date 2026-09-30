@@ -30,6 +30,8 @@ class DocumentStorageService {
   // ── Debounce timer for batch writes ──
   Timer? _writeTimer;
   bool _writePending = false;
+  // Invalidates callbacks from timers that were cancelled after they started.
+  int _writeGeneration = 0;
   static const Duration _writeDelay = Duration(milliseconds: 500);
 
   // Serialize every cache mutation + metadata write. Without this lock, two
@@ -250,21 +252,31 @@ class DocumentStorageService {
     // false as soon as its callback starts, even if that callback is still
     // waiting for the mutation lock.
     _writeTimer?.cancel();
+    final generation = ++_writeGeneration;
     _writePending = true;
 
     _writeTimer = Timer(_writeDelay, () async {
+      var saved = false;
       try {
         await _withMutationLock<void>(() async {
-          if (_cachedDocuments == null) return;
+          // A cancelled timer may already be waiting for the lock. It must
+          // not write or clear the pending flag for a newer scheduled save.
+          if (generation != _writeGeneration || _cachedDocuments == null) {
+            return;
+          }
           final jsonStr = json.encode(
             _cachedDocuments!.map((d) => d.toJson()).toList(),
           );
           await _writeMetaAtomic(jsonStr);
+          saved = true;
         });
       } catch (_) {
-        // Deferred writes are best-effort; critical callers use immediate save.
+        // Keep the pending marker on failure so invalidateCache() can retry
+        // an immediate save instead of silently discarding the unsaved state.
       } finally {
-        _writePending = false;
+        if (generation == _writeGeneration && saved) {
+          _writePending = false;
+        }
       }
     });
   }
@@ -273,9 +285,9 @@ class DocumentStorageService {
   Future<void> _saveLocked() async {
     if (_cachedDocuments == null) return;
     _writeTimer?.cancel();
-    // An immediate save supersedes any scheduled debounced write. Clear the
-    // pending marker as well, otherwise invalidateCache() may perform an
-    // unnecessary second write after the timer has been cancelled.
+    // Invalidate even a timer callback that has already started and is waiting
+    // for the mutation lock; this immediate write supersedes that callback.
+    _writeGeneration++;
     _writePending = false;
     try {
       final jsonStr = json.encode(
