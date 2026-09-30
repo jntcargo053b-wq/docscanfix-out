@@ -395,28 +395,29 @@ class DocumentStorageService {
 
     final doc = docs[docIndex];
 
-    // Delete image files in background (non-blocking)
-    _deleteFilesInBackground(doc.imagePaths);
+    // Commit metadata first. If persistence fails, restore the in-memory
+    // snapshot and keep all document files intact.
+    _cachedDocuments!.removeAt(docIndex);
+    _cacheValid = true;
+    try {
+      await _saveLocked();
+    } catch (_) {
+      _cachedDocuments = List<ScannedDocument>.from(docs);
+      _cacheValid = true;
+      rethrow;
+    }
 
-    // Delete PDF if exists
+    // Only delete files after metadata was saved successfully. File cleanup
+    // remains best-effort and non-blocking, as in the existing behavior.
+    _deleteFilesInBackground(doc.imagePaths);
     if (doc.pdfPath != null) {
       _deleteFileInBackground(doc.pdfPath!);
     }
-
-    // FIX (perf #1): thumbnailPath sekarang file terpisah hasil
-    // ImageEnhanceService.generateThumbnail() (lihat saveImages di bawah),
-    // bukan lagi salah satu dari imagePaths — jadi harus dihapus eksplisit
-    // di sini juga, kalau tidak akan jadi sampah menumpuk di folder
-    // DocScan/Thumbnails setiap dokumen dihapus.
+    // Thumbnail is stored separately from imagePaths.
     if (doc.thumbnailPath != null &&
         !doc.imagePaths.contains(doc.thumbnailPath)) {
       _deleteFileInBackground(doc.thumbnailPath!);
     }
-
-    // Update cache and save immediately
-    _cachedDocuments!.removeAt(docIndex);
-    _cacheValid = true;
-      await _saveLocked();
     });
   }
 
@@ -434,25 +435,31 @@ class DocumentStorageService {
       }
     }
 
-    // Delete all files in background
+    if (toDelete.isEmpty) return;
+
+    // Persist the new metadata before removing any files. If persistence
+    // fails, restore the original in-memory snapshot and leave files intact.
+    for (final doc in toDelete) {
+      _cachedDocuments!.removeWhere((d) => d.id == doc.id);
+    }
+    _cacheValid = true;
+    try {
+      await _saveLocked();
+    } catch (_) {
+      _cachedDocuments = List<ScannedDocument>.from(docs);
+      _cacheValid = true;
+      rethrow;
+    }
+
+    // Metadata is now committed; clean up files in the background.
     for (final doc in toDelete) {
       _deleteFilesInBackground(doc.imagePaths);
       if (doc.pdfPath != null) _deleteFileInBackground(doc.pdfPath!);
-      // FIX (perf #1): sama seperti deleteDocument — thumbnail terpisah
-      // harus ikut dibersihkan.
       if (doc.thumbnailPath != null &&
           !doc.imagePaths.contains(doc.thumbnailPath)) {
         _deleteFileInBackground(doc.thumbnailPath!);
       }
     }
-
-    // Update cache
-    for (final doc in toDelete) {
-      _cachedDocuments!.removeWhere((d) => d.id == doc.id);
-    }
-
-    _cacheValid = true;
-      await _saveLocked();
     });
   }
 
