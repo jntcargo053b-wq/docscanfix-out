@@ -110,6 +110,10 @@ class ScannedDocument {
     DateTime? createdAt,
     String? pdfPath,
     String? thumbnailPath,
+    double? locationLatitude,
+    double? locationLongitude,
+    double? locationAccuracyMeters,
+    DateTime? locationCapturedAt,
   }) =>
       ScannedDocument(
         id: id ?? this.id,
@@ -119,6 +123,10 @@ class ScannedDocument {
         createdAt: createdAt ?? this.createdAt,
         pdfPath: pdfPath ?? this.pdfPath,
         thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+        locationLatitude: locationLatitude ?? this.locationLatitude,
+        locationLongitude: locationLongitude ?? this.locationLongitude,
+        locationAccuracyMeters: locationAccuracyMeters ?? this.locationAccuracyMeters,
+        locationCapturedAt: locationCapturedAt ?? this.locationCapturedAt,
       );
 
   @override
