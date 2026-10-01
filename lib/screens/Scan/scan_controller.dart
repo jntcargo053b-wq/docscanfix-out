@@ -316,74 +316,16 @@ class ScanController extends ChangeNotifier {
     String? id;
     String? thumbnailForRollback;
 
-    try {
-      await _requestGalleryPermission();
+    bool documentCommitted = false;
 
+    try {
       id = _storageService.generateId();
       final saved = await _storageService.saveImages(id, _imagePaths);
       thumbnailForRollback = saved.thumbnailPath;
 
-      _processingStatus = 'Menulis ke galeri…';
-      notifyListeners();
-
-      // FIX (P1 — Save gallery bisa menghasilkan halaman parsial):
-      // sebelumnya loop ini throw _SavePageException pada kegagalan
-      // HALAMAN PERTAMA yang gagal, langsung lompat ke catch block di
-      // bawah — yang me-rollback dokumen INTERNAL (discardUnsavedDocument,
-      // menghapus Documents/{id}/ yang baru saja berhasil di-copy oleh
-      // saveImages() di atas). Masalahnya: halaman 1..i-1 yang SUDAH
-      // berhasil ditulis oleh SaverGallery.saveFile() di iterasi
-      // sebelumnya TETAP ada di galeri publik (Pictures/DocScan) — paket
-      // saver_gallery tidak punya API hapus, jadi tidak ada cara
-      // membersihkannya balik dari sini. Hasilnya: user melihat pesan
-      // "gagal disimpan" (dokumen memang tidak tercatat di app), padahal
-      // sebagian halaman scan-nya sudah nyangkut permanen & tidak berlabel
-      // di galeri foto pribadinya — persis kebalikan dari yang diharapkan
-      // (bukannya tidak ada jejak sama sekali, malah ada jejak PARSIAL
-      // yang tidak diketahui user).
-      // Fix: salinan ke galeri publik itu SEBENARNYA cuma "bonus" untuk
-      // kenyamanan user (sumber kebenaran tetap folder internal
-      // Documents/{id}/, sudah tercopy penuh lewat saveImages() di atas
-      // — itu sendiri sudah resilient per-halaman, lihat komentar di
-      // DocumentStorageService.saveImages()). Jadi loop ini sekarang
-      // best-effort juga: coba SEMUA halaman, jangan berhenti di
-      // kegagalan pertama, kumpulkan yang gagal. Dokumen tetap
-      // dikomit (addDocument) selama ada minimal satu halaman berhasil
-      // di-copy secara internal (selalu true di titik ini, karena
-      // saveImages() sudah melempar sebelum sampai sini kalau savedPaths
-      // kosong) — kegagalan ekspor ke galeri publik jadi warning
-      // non-fatal, bukan alasan membuang dokumen yang sebenarnya baik-baik
-      // saja.
-      // FIX (isSuccess tidak pernah dicek): SaverGallery.saveFile() (paket
-      // saver_gallery) mengembalikan objek SaveResult dan pada kegagalan yang
-      // WAJAR (izin ditolak saat runtime, storage penuh, path tidak valid)
-      // itu DITANGKAP secara internal oleh paket dan dikembalikan sebagai
-      // `isSuccess: false` — BUKAN dilempar sebagai exception. Loop
-      // sebelumnya cuma mengandalkan try/catch tanpa pernah membaca
-      // `.isSuccess`, jadi kegagalan gallery yang paling umum sekalipun lolos
-      // tanpa terdeteksi: `failedGalleryPages` tetap kosong, dan
-      // `_errorMessage` di bawah tidak pernah muncul meski semua/sebagian
-      // halaman sebenarnya gagal tersalin ke galeri publik. Sekarang hasilnya
-      // ditangkap dan `isSuccess` dicek eksplisit; try/catch tetap
-      // dipertahankan sebagai jaring pengaman untuk kasus non-standar yang
-      // benar-benar melempar.
-      final failedGalleryPages = <int>[];
-      for (var i = 0; i < saved.imagePaths.length; i++) {
-        try {
-          final result = await SaverGallery.saveFile(
-            filePath: saved.imagePaths[i],
-            fileName: 'DocScan_${id}_$i',
-            androidRelativePath: 'Pictures/DocScan',
-            skipIfExists: false,
-          );
-          if (result.isSuccess != true) {
-            failedGalleryPages.add(i + 1);
-          }
-        } catch (_) {
-          failedGalleryPages.add(i + 1);
-        }
-      }
-
+      // Commit the complete internal document FIRST. Public gallery export is
+      // a convenience copy and must never determine whether the app retains
+      // the successfully saved document.
       _processingStatus = 'Menyimpan data…';
       notifyListeners();
 
@@ -397,14 +339,49 @@ class ScanController extends ChangeNotifier {
         thumbnailPath: saved.thumbnailPath,
       );
       await _storageService.addDocument(doc);
+      documentCommitted = true;
 
-      // Dokumen berhasil dikomit ke app terlepas dari hasil ekspor galeri
-      // publik di atas — beri tahu user kalau sebagian/semua salinan
-      // galeri gagal, tapi jangan tandai save-nya sebagai gagal.
+      // Gallery export is best-effort. On older Android versions only, a
+      // denied storage permission should affect the public copy, not the
+      // already committed internal document.
+      final failedGalleryPages = <int>[];
+      var galleryPermissionGranted = true;
+      _processingStatus = 'Menyalin ke galeri…';
+      notifyListeners();
+
+      try {
+        await _requestGalleryPermission();
+      } catch (_) {
+        galleryPermissionGranted = false;
+        failedGalleryPages.addAll(
+          List<int>.generate(saved.imagePaths.length, (index) => index + 1),
+        );
+      }
+
+      // Keep exports sequential: saver_gallery writes through the platform's
+      // media store, and concurrent writes have not been verified as safe.
+      if (galleryPermissionGranted) {
+        for (var i = 0; i < saved.imagePaths.length; i++) {
+          try {
+            final result = await SaverGallery.saveFile(
+              filePath: saved.imagePaths[i],
+              fileName: 'DocScan_${id}_$i',
+              androidRelativePath: 'Pictures/DocScan',
+              skipIfExists: false,
+            );
+            if (result.isSuccess != true) {
+              failedGalleryPages.add(i + 1);
+            }
+          } catch (_) {
+            failedGalleryPages.add(i + 1);
+          }
+        }
+      }
+
       if (failedGalleryPages.isNotEmpty) {
         _errorMessage = failedGalleryPages.length == saved.imagePaths.length
-            ? 'Dokumen tersimpan di aplikasi, tapi gagal disalin ke galeri '
-                'publik. Pastikan penyimpanan tidak penuh.'
+            ? 'Dokumen tersimpan di aplikasi, tetapi gagal disalin ke galeri '
+                'publik. Dokumen tetap tersedia di aplikasi.'
             : 'Dokumen tersimpan di aplikasi. ${failedGalleryPages.length} '
                 'dari ${saved.imagePaths.length} halaman gagal disalin ke '
                 'galeri publik.';
@@ -414,19 +391,20 @@ class ScanController extends ChangeNotifier {
       _clearPreparedCache();
       return true;
     } catch (e) {
-      // FIX (P0 — Partial Gallery save → orphan document files):
-      // saveImages() di atas sudah men-copy byte ke folder permanen
-      // Documents/{id}/ SEBELUM addDocument() dicapai. Kalau ada
-      // kegagalan SEBELUM addDocument() berhasil dipanggil (mis. izin
-      // storage ditolak, saveImages() sendiri gagal total, atau
-      // addDocument()/penulisan metadata gagal), folder itu (dan
-      // thumbnail terpisah) sudah ada di disk tapi TIDAK PERNAH tercatat
-      // di documents_meta.json — sampah permanen yang menumpuk tiap
-      // percobaan save yang gagal di tengah. Bersihkan di sini supaya
-      // kegagalan bersih: tidak ada jejak di disk untuk dokumen yang
-      // gagal disimpan. (Catatan: sejak fix di atas, kegagalan
-      // SaverGallery per-halaman sendiri TIDAK lagi masuk ke catch ini —
-      // loop galeri sekarang best-effort dan tidak melempar.)
+      // Once metadata has been committed, never remove the internal document
+      // or report the save as failed. This guard also protects against an
+      // unexpected error during gallery export/status updates.
+      if (documentCommitted) {
+        _errorMessage =
+            'Dokumen tersimpan di aplikasi, tetapi ekspor galeri tidak selesai.';
+        _setStatus(ScanStatus.done);
+        _clearPreparedCache();
+        return true;
+      }
+
+      // Before commit, remove copied files so a failed save does not leave
+      // an unlisted document folder or thumbnail behind.
+
       if (id != null) {
         await _storageService.discardUnsavedDocument(
           id,
