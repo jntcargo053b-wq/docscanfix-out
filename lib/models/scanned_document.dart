@@ -6,6 +6,10 @@ class ScannedDocument {
   final DateTime createdAt;
   final String? pdfPath;
   final String? thumbnailPath;
+  final double? locationLatitude;
+  final double? locationLongitude;
+  final double? locationAccuracyMeters;
+  final DateTime? locationCapturedAt;
 
   ScannedDocument({
     required this.id,
@@ -15,6 +19,10 @@ class ScannedDocument {
     required this.createdAt,
     this.pdfPath,
     this.thumbnailPath,
+    this.locationLatitude,
+    this.locationLongitude,
+    this.locationAccuracyMeters,
+    this.locationCapturedAt,
   });
 
   // ── Search index cache ──────────────────────────────────────────────────
