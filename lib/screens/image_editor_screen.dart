@@ -558,9 +558,9 @@ class _ImageEditorScreenState extends State<ImageEditorScreen> {
   Widget _buildControls() {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppTheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(0)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(0)),
       ),
       child: _tab == _EditorTab.transform
           ? _buildTransformControls()
