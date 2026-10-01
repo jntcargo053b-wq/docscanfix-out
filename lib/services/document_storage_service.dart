@@ -535,7 +535,6 @@ class DocumentStorageService {
             }(),
         ]);
       }
-    }
     } catch (_) {
       // Loop copy gagal di tengah jalan — thumbnailFuture yang sudah
       // dimulai paralel di atas mungkin masih berjalan atau sudah selesai
@@ -560,7 +559,7 @@ class DocumentStorageService {
     // document list. DocumentCard already has a safe resized-image fallback
     // for legacy documents.
     final thumbnailPath = await thumbnailFuture;
-    final orderedPaths = savedPaths.cast<String>();
+    final orderedPaths = savedPaths.map((path) => path!).toList(growable: false);
 
     return (imagePaths: orderedPaths, thumbnailPath: thumbnailPath);
   }
