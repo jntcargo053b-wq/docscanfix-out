@@ -477,96 +477,65 @@ class DocumentStorageService {
     final docDir = Directory('${dir.path}/$documentId');
     await docDir.create(recursive: true);
 
-    final List<String> savedPaths = [];
+    // Simpan path berdasarkan indeks sumber agar urutan halaman tetap sama
+    // walaupun beberapa operasi file berjalan bersamaan.
+    final savedPaths = List<String?>.filled(tempPaths.length, null);
 
-    // PERF (thumbnail sebelum permanent save, bukan sesudah): versi
-    // sebelumnya generate thumbnail SETELAH seluruh loop copy halaman di
-    // bawah selesai (menunggu semua halaman ter-copy dulu, baru mulai
-    // generate thumbnail dari path PERMANEN halaman pertama) — jadi
-    // caller (ScanController.saveDocument()) menunggu dua tahap yang
-    // sebetulnya independen secara BERURUTAN: copy semua halaman, BARU
-    // generate thumbnail. Halaman pertama (tempPaths.first) sudah ada &
-    // siap dibaca sejak awal, tidak perlu menunggu halaman² lain selesai
-    // di-copy dulu. Fix: mulai generate thumbnail dari file TEMP halaman
-    // pertama serentak (Future, belum di-await) dengan loop copy di bawah,
-    // supaya kerja isolate thumbnail (resize+encode) tumpang tindih dengan
-    // I/O copy halaman lain alih-alih menunggu di belakangnya — total
-    // waktu saveImages() mendekati max(waktu-copy, waktu-thumbnail),
-    // bukan jumlah keduanya. Formatnya tetap JPEG kecil pre-resized
-    // (200x200 q75, lihat ImageEnhanceService.generateThumbnail) — WebP
-    // tidak dipakai karena versi package:image di proyek ini tidak
-    // punya encoder WebP yang terverifikasi, dan JPEG kecil sudah "fast
-    // loading" untuk kebutuhan thumbnail 200x200 ini.
-    final thumbnailFuture = tempPaths.isNotEmpty
-        ? ImageEnhanceService()
-            .generateThumbnail(tempPaths.first.trim())
-            .then<String?>((p) => p)
-            .catchError((_) => null)
-        : Future<String?>.value(null);
+    // Thumbnail diproses paralel dengan penyalinan halaman.
+    final thumbnailFuture = ImageEnhanceService()
+        .generateThumbnail(tempPaths.first.trim())
+        .then<String?>((p) => p)
+        .catchError((_) => null);
 
-    // FIX (dokumen parsial): versi sebelumnya `continue` saat satu halaman
-    // gagal (path kosong, file hilang, atau copy gagal) dan cuma throw kalau
-    // SEMUA halaman gagal — artinya sebagian halaman yang gagal di-copy bisa
-    // hilang tanpa pemberitahuan apapun ke user; dokumen tetap "berhasil"
-    // tersimpan tapi dengan halaman lebih sedikit dari yang di-scan. Sekarang
-    // all-or-nothing: begitu SATU halaman gagal, langsung throw. Caller
-    // (ScanController.saveDocument()) sudah punya rollback penuh untuk kasus
-    // saveImages() throw (discardUnsavedDocument() di catch block, menghapus
-    // docDir termasuk halaman yang sempat ter-copy sebelum kegagalan ini) —
-    // jadi hasilnya bersih: dokumen tidak pernah tercatat dengan halaman
-    // bolong, dan user melihat error yang jelas alih-alih dokumen parsial
-    // yang terlihat baik-baik saja.
+    // Simpan maksimal dua halaman sekaligus. Ini mengurangi waktu tunggu
+    // I/O/normalisasi untuk dokumen multi-halaman tanpa membuka terlalu
+    // banyak decode gambar serentak yang dapat menambah tekanan memori.
+    const batchSize = 2;
+
     try {
-      for (int i = 0; i < tempPaths.length; i++) {
-        final rawPath = tempPaths[i].trim();
-        if (rawPath.isEmpty) {
-          throw Exception('Halaman ${i + 1} tidak valid (path kosong).');
-        }
+      for (int batchStart = 0;
+          batchStart < tempPaths.length;
+          batchStart += batchSize) {
+        final batchEnd = (batchStart + batchSize < tempPaths.length)
+            ? batchStart + batchSize
+            : tempPaths.length;
 
-        final tempFile = File(rawPath);
-        if (!await tempFile.exists()) {
-          throw Exception('Halaman ${i + 1} tidak ditemukan di penyimpanan sementara.');
-        }
+        await Future.wait([
+          for (int i = batchStart; i < batchEnd; i++)
+            () async {
+              final rawPath = tempPaths[i].trim();
+              if (rawPath.isEmpty) {
+                throw Exception('Halaman ${i + 1} tidak valid (path kosong).');
+              }
 
-        // BUG FIX (share: "file yang dikirim bukan foto"): sebelumnya
-        // tempFile.copy(newPath) menyalin byte APA ADANYA lalu memberi
-        // nama "page_N.jpg" tanpa pernah mengecek isi filenya benar JPEG
-        // atau bukan — halaman dari "Tambah dari Galeri" yang aslinya
-        // PNG/WEBP/HEIC ikut disalin mentah tapi diberi label ".jpg" +
-        // mimeType 'image/jpeg' di semua titik share. Aplikasi tujuan
-        // yang memvalidasi magic bytes aktual (bukan cuma percaya nama
-        // file) sering menampilkan ini sebagai dokumen/file generik,
-        // bukan foto. Lihat catatan lengkap di
-        // ImageEnhanceService.ensureJpeg()/_processEnsureJpeg().
-        // Fix: normalisasi ke JPEG asli SEBELUM disalin ke penyimpanan
-        // permanen — sekali di sini, semua share berikutnya dari
-        // dokumen ini (BulkShareService, DocumentDetailScreen) otomatis
-        // aman tanpa perlu tahu format sumbernya. Untuk halaman yang
-        // memang sudah JPEG asli (mayoritas — hasil scan kamera),
-        // ensureJpeg() adalah fast path (cek 3 byte, tanpa decode),
-        // jadi tidak ada biaya tambahan berarti untuk kasus normal.
-        final normalizedPath = await ImageEnhanceService().ensureJpeg(rawPath);
+              final tempFile = File(rawPath);
+              if (!await tempFile.exists()) {
+                throw Exception(
+                  'Halaman ${i + 1} tidak ditemukan di penyimpanan sementara.',
+                );
+              }
 
-        final newPath = '${docDir.path}/page_${i + 1}.jpg';
-        try {
-          await File(normalizedPath).copy(newPath);
-        } catch (e) {
-          // Storage penuh / permission I/O — gagalkan seluruh penyimpanan,
-          // jangan lewati halaman ini.
-          throw Exception('Gagal menyalin halaman ${i + 1}: $e');
-        } finally {
-          // File hasil normalisasi cuma perantara (beda dari rawPath asli
-          // yang milik caller/scanner plugin) — bersihkan supaya tidak
-          // jadi sampah temp, kecuali memang tidak ada file baru yang
-          // dibuat (normalizedPath == rawPath, sudah JPEG dari awal).
-          if (normalizedPath != rawPath) {
-            _deleteFileInBackground(normalizedPath);
-          }
-        }
-        savedPaths.add(newPath);
-        // Penomoran sekarang selalu 1:1 dengan tempPaths (i + 1), tidak ada
-        // lagi celah karena tidak ada lagi halaman yang di-skip diam-diam.
+              // Normalisasi memastikan file permanen benar-benar JPEG.
+              // JPEG hasil kamera memakai fast path tanpa decode penuh.
+              final normalizedPath =
+                  await ImageEnhanceService().ensureJpeg(rawPath);
+              final newPath = '${docDir.path}/page_${i + 1}.jpg';
+
+              try {
+                await File(normalizedPath).copy(newPath);
+                savedPaths[i] = newPath;
+              } catch (e) {
+                throw Exception('Gagal menyalin halaman ${i + 1}: $e');
+              } finally {
+                // Jangan hapus file sumber milik scanner/pemanggil.
+                if (normalizedPath != rawPath) {
+                  _deleteFileInBackground(normalizedPath);
+                }
+              }
+            }(),
+        ]);
       }
+    }
     } catch (_) {
       // Loop copy gagal di tengah jalan — thumbnailFuture yang sudah
       // dimulai paralel di atas mungkin masih berjalan atau sudah selesai
@@ -591,8 +560,9 @@ class DocumentStorageService {
     // document list. DocumentCard already has a safe resized-image fallback
     // for legacy documents.
     final thumbnailPath = await thumbnailFuture;
+    final orderedPaths = savedPaths.cast<String>();
 
-    return (imagePaths: savedPaths, thumbnailPath: thumbnailPath);
+    return (imagePaths: orderedPaths, thumbnailPath: thumbnailPath);
   }
 
   /// Buang folder permanen milik [documentId] yang SUDAH di-copy oleh
