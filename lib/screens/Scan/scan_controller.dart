@@ -164,7 +164,12 @@ class ScanController extends ChangeNotifier {
       // while it ran. Do not pass a stale BuildContext to the scanner.
       if (!context.mounted) return;
 
-      final images = await _scannerService.scanDocument(context);
+      // Dedupe sekali di controller agar halaman baru dibandingkan dengan
+      // halaman sesi sebelumnya tanpa hashing batch baru dua kali.
+      final images = await _scannerService.scanDocument(
+        context,
+        deduplicate: false,
+      );
 
       if (images == null || images.isEmpty) {
         _setStatus(_imagePaths.isEmpty ? ScanStatus.idle : ScanStatus.ready);
