@@ -243,6 +243,59 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
                 ),
               ],
             ),
+            if (_doc.locationLatitude != null && _doc.locationLongitude != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceLight,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.location_on_outlined, color: AppTheme.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Koordinat lokasi pemindaian',
+                              style: TextStyle(fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 4),
+                          SelectableText(
+                            '${_doc.locationLatitude!.toStringAsFixed(6)}, ${_doc.locationLongitude!.toStringAsFixed(6)}',
+                          ),
+                          if (_doc.locationAccuracyMeters != null)
+                            Text(
+                              'Akurasi ±${_doc.locationAccuracyMeters!.toStringAsFixed(0)} m',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          if (_doc.locationCapturedAt != null)
+                            Text(
+                              'Diambil: ${_doc.locationCapturedAt!.toLocal()}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Salin koordinat',
+                      icon: const Icon(Icons.copy_outlined, size: 18),
+                      onPressed: () {
+                        final coordinates =
+                            '${_doc.locationLatitude}, ${_doc.locationLongitude}';
+                        // Clipboard action intentionally kept simple and local.
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(coordinates)),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
             Expanded(
               child: ImageGrid(
