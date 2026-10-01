@@ -18,7 +18,7 @@ class ScanOcrSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (isRunning) return _OcrLoadingRow();
+    if (isRunning) return const _OcrLoadingRow();
     if (extractedText != null) return _OcrResultCard(text: extractedText!);
     return const SizedBox.shrink();
   }
