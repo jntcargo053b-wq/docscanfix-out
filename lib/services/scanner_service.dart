@@ -55,7 +55,10 @@ class ScannerService {
 
   /// Scan dokumen menggunakan cunning_document_scanner.
   /// BuildContext tetap diterima untuk kompatibilitas caller, tapi tidak dipakai.
-  Future<List<String>?> scanDocument(BuildContext context) async {
+  Future<List<String>?> scanDocument(
+    BuildContext context, {
+    bool deduplicate = true,
+  }) async {
     final granted = await ensureCameraPermission();
     if (!granted) {
       final status = await Permission.camera.status;
@@ -102,7 +105,10 @@ class ScannerService {
       // sehingga dokumen/PDF/share bisa berisi foto duplikat. Saring
       // berdasarkan hash konten file, bukan cuma path, karena duplikat
       // bisa muncul dengan nama file yang berbeda.
-      return await _dedupeByContent(paths);
+      // Caller yang mengelola sesi multi-batch dapat menonaktifkan dedupe
+      // di sini dan melakukan satu dedupe gabungan terhadap halaman lama +
+      // halaman baru. Ini menghindari membaca/hash seluruh batch dua kali.
+      return deduplicate ? await _dedupeByContent(paths) : paths;
     } on ScannerException {
       rethrow;
     } catch (e) {
