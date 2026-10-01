@@ -38,6 +38,8 @@ class ScanBody extends StatelessWidget {
             onAutoName: controller.useAutoTitle,
             onScanBarcode: onScanBarcode,
           ),
+          const Gap(12),
+          _ScanLocationCard(controller: controller),
           const Gap(20),
           ScanPageCarousel(
             imagePaths: controller.imagePaths,
@@ -84,5 +86,60 @@ class ScanBody extends StatelessWidget {
     // perubahan yang perlu diterapkan.
     if (result == null) return;
     controller.replaceImage(index, result);
+  }
+}
+
+
+class _ScanLocationCard extends StatelessWidget {
+  const _ScanLocationCard({required this.controller});
+
+  final ScanController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final location = controller.scanLocation;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.location_on_outlined, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: location == null
+                ? const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Koordinat lokasi belum tersedia', style: TextStyle(fontWeight: FontWeight.w600)),
+                      SizedBox(height: 3),
+                      Text('Aktifkan GPS dan izinkan akses lokasi. Scan tetap dapat disimpan tanpa koordinat.',
+                          style: TextStyle(fontSize: 12)),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Lokasi pemindaian', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      SelectableText(
+                        '${location.latitude.toStringAsFixed(6)}, ${location.longitude.toStringAsFixed(6)}',
+                        style: const TextStyle(fontFeatures: []),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        'Akurasi ±${location.accuracyMeters.toStringAsFixed(0)} m',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
   }
 }
