@@ -6,10 +6,6 @@ class ScannedDocument {
   final DateTime createdAt;
   final String? pdfPath;
   final String? thumbnailPath;
-  final double? locationLatitude;
-  final double? locationLongitude;
-  final double? locationAccuracyMeters;
-  final DateTime? locationCapturedAt;
 
   ScannedDocument({
     required this.id,
@@ -19,10 +15,6 @@ class ScannedDocument {
     required this.createdAt,
     this.pdfPath,
     this.thumbnailPath,
-    this.locationLatitude,
-    this.locationLongitude,
-    this.locationAccuracyMeters,
-    this.locationCapturedAt,
   });
 
   // ── Search index cache ──────────────────────────────────────────────────
@@ -49,10 +41,6 @@ class ScannedDocument {
         createdAt = DateTime.now(),
         pdfPath = null,
         thumbnailPath = null,
-        locationLatitude = null,
-        locationLongitude = null,
-        locationAccuracyMeters = null,
-        locationCapturedAt = null;
 
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
@@ -63,10 +51,6 @@ class ScannedDocument {
         'createdAt': createdAt.toIso8601String(),
         'pdfPath': pdfPath,
         'thumbnailPath': thumbnailPath,
-        'locationLatitude': locationLatitude,
-        'locationLongitude': locationLongitude,
-        'locationAccuracyMeters': locationAccuracyMeters,
-        'locationCapturedAt': locationCapturedAt?.toIso8601String(),
       };
 
   /// Create from JSON
@@ -81,12 +65,6 @@ class ScannedDocument {
             : DateTime.now(),
         pdfPath: json['pdfPath'] as String?,
         thumbnailPath: json['thumbnailPath'] as String?,
-        locationLatitude: (json['locationLatitude'] as num?)?.toDouble(),
-        locationLongitude: (json['locationLongitude'] as num?)?.toDouble(),
-        locationAccuracyMeters: (json['locationAccuracyMeters'] as num?)?.toDouble(),
-        locationCapturedAt: json['locationCapturedAt'] != null
-            ? DateTime.tryParse(json['locationCapturedAt'] as String)
-            : null,
       );
 
   /// Format created date for display
@@ -110,10 +88,6 @@ class ScannedDocument {
     DateTime? createdAt,
     String? pdfPath,
     String? thumbnailPath,
-    double? locationLatitude,
-    double? locationLongitude,
-    double? locationAccuracyMeters,
-    DateTime? locationCapturedAt,
   }) =>
       ScannedDocument(
         id: id ?? this.id,
@@ -123,10 +97,6 @@ class ScannedDocument {
         createdAt: createdAt ?? this.createdAt,
         pdfPath: pdfPath ?? this.pdfPath,
         thumbnailPath: thumbnailPath ?? this.thumbnailPath,
-        locationLatitude: locationLatitude ?? this.locationLatitude,
-        locationLongitude: locationLongitude ?? this.locationLongitude,
-        locationAccuracyMeters: locationAccuracyMeters ?? this.locationAccuracyMeters,
-        locationCapturedAt: locationCapturedAt ?? this.locationCapturedAt,
       );
 
   @override
