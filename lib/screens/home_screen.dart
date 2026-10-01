@@ -218,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     final progress =
-        ValueNotifier<BulkShareProgress>(BulkShareProgress(0, 0, ''));
+        ValueNotifier<BulkShareProgress>(const BulkShareProgress(0, 0, ''));
     setState(() => _isBulkSharing = true);
     if (mounted) {
       unawaited(BulkProgressDialog.show(
