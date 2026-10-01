@@ -13,6 +13,7 @@ import '../../services/ocr_service.dart';
 import '../../services/pdf_service.dart';
 import '../../services/document_storage_service.dart';
 import '../../services/image_enhance_service.dart';
+import '../../services/scan_location_service.dart';
 import '../../models/scanned_document.dart';
 
 enum ScanStatus { idle, scanning, ready, processing, done, error }
@@ -45,6 +46,7 @@ class ScanController extends ChangeNotifier {
   final PdfService _pdfService;
   final DocumentStorageService _storageService;
   final ImageEnhanceService _enhanceService;
+  final ScanLocationService _locationService;
 
   ScanController({
     ScannerService? scannerService,
@@ -52,11 +54,13 @@ class ScanController extends ChangeNotifier {
     PdfService? pdfService,
     DocumentStorageService? storageService,
     ImageEnhanceService? enhanceService,
+    ScanLocationService? locationService,
   })  : _scannerService = scannerService ?? ScannerService(),
         _ocrService = ocrService ?? OcrService(),
         _pdfService = pdfService ?? PdfService(),
         _storageService = storageService ?? DocumentStorageService(),
-        _enhanceService = enhanceService ?? ImageEnhanceService();
+        _enhanceService = enhanceService ?? ImageEnhanceService(),
+        _locationService = locationService ?? ScanLocationService();
 
   // ─── State ──────────────────────────────────────────────────────────
   // BUG (ScanController share lifecycle): shareImages() (dan method async
@@ -85,6 +89,7 @@ class ScanController extends ChangeNotifier {
   Future<void>? _ocrFuture;
   String _processingStatus = '';
   String? _errorMessage;
+  ScanLocation? _scanLocation;
 
   // ── Cache for prepared images to avoid reprocessing ──
   final Map<String, String> _preparedForOcrCache = {};
@@ -116,6 +121,7 @@ class ScanController extends ChangeNotifier {
   bool get hasImages => _imagePaths.isNotEmpty;
   String get processingStatus => _processingStatus;
   String? get errorMessage => _errorMessage;
+  ScanLocation? get scanLocation => _scanLocation;
 
   // ─── Public Actions ───────────────────────────────────────────────────────
 
@@ -175,6 +181,13 @@ class ScanController extends ChangeNotifier {
         _setStatus(_imagePaths.isEmpty ? ScanStatus.idle : ScanStatus.ready);
         return;
       }
+
+      // Simpan satu snapshot lokasi untuk sesi dokumen ini. Pengambilan GPS
+      // bersifat opsional dan gagal tidak boleh membatalkan hasil scan.
+      if (_scanLocation == null) {
+        _scanLocation = await _locationService.capture();
+      }
+      if (_disposed) return;
 
       // Semua path mentah hasil sesi scan ini dicatat untuk cleanup lifecycle
       // nanti (lihat dispose()) — termasuk yang bakal disaring sebagai
@@ -337,6 +350,10 @@ class ScanController extends ChangeNotifier {
         createdAt: DateTime.now(),
         pdfPath: null,
         thumbnailPath: saved.thumbnailPath,
+        locationLatitude: _scanLocation?.latitude,
+        locationLongitude: _scanLocation?.longitude,
+        locationAccuracyMeters: _scanLocation?.accuracyMeters,
+        locationCapturedAt: _scanLocation?.capturedAt,
       );
       await _storageService.addDocument(doc);
       documentCommitted = true;
