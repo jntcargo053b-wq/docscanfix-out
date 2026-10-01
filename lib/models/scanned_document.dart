@@ -48,7 +48,11 @@ class ScannedDocument {
         extractedText = null,
         createdAt = DateTime.now(),
         pdfPath = null,
-        thumbnailPath = null;
+        thumbnailPath = null,
+        locationLatitude = null,
+        locationLongitude = null,
+        locationAccuracyMeters = null,
+        locationCapturedAt = null;
 
   /// Convert to JSON
   Map<String, dynamic> toJson() => {
