@@ -320,7 +320,15 @@ class DocumentStorageService {
     // dokumennya tidak pernah muncul di daftar ("hilang" dari sisi user).
     // Commit dokumen adalah operasi kritis satu-kali (bukan burst update
     // berulang), jadi ditulis langsung/synchronous, bukan di-defer.
-      await _saveLocked();
+      try {
+        await _saveLocked();
+      } catch (_) {
+        // Roll back the in-memory snapshot if metadata persistence fails.
+        // The caller can then clean up uncommitted image files safely.
+        _cachedDocuments = List<ScannedDocument>.from(docs);
+        _cacheValid = true;
+        rethrow;
+      }
     });
   }
 
