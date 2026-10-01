@@ -95,7 +95,7 @@ class ScannerService {
       // yang sudah adaptif per-foto, bukan dobel dengan preset native.
       final List<String>? paths = await CunningDocumentScanner.getPictures(
         noOfPages: 10,
-        isGalleryImportAllowed: false,
+        scannerSource: ScannerSource.camera,
         androidScannerMode: AndroidScannerMode.base,
       );
       if (paths == null || paths.isEmpty) return null;

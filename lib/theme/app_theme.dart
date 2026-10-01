@@ -182,7 +182,3 @@ class AppTheme {
   }
 }
 
-/// Compatibility extension for older code that uses Color.withValues().
-extension ColorCompatibility on Color {
-  Color withValues({double? alpha}) => withOpacity(alpha ?? opacity);
-}
