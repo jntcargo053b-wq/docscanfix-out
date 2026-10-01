@@ -206,11 +206,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 18),
           TextButton.icon(
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
               await Clipboard.setData(
                 const ClipboardData(text: 'DocScan • Versi 1.0.0'),
               );
               if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
+              messenger.showSnackBar(
                 const SnackBar(content: Text('Info aplikasi disalin.')),
               );
             },
