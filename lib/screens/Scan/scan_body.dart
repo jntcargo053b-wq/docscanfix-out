@@ -101,9 +101,9 @@ class _ScanLocationCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.45),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.35)),
+        border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.35)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,7 +128,7 @@ class _ScanLocationCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       SelectableText(
                         '${location.latitude.toStringAsFixed(6)}, ${location.longitude.toStringAsFixed(6)}',
-                        style: const TextStyle(fontFeatures: []),
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 3),
                       Text(
