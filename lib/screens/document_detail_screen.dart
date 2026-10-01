@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
@@ -286,9 +287,9 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
                       onPressed: () {
                         final coordinates =
                             '${_doc.locationLatitude}, ${_doc.locationLongitude}';
-                        // Clipboard action intentionally kept simple and local.
+                        Clipboard.setData(ClipboardData(text: coordinates));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(coordinates)),
+                          const SnackBar(content: Text('Koordinat disalin')),
                         );
                       },
                     ),
