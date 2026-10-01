@@ -63,6 +63,10 @@ class ScannedDocument {
         'createdAt': createdAt.toIso8601String(),
         'pdfPath': pdfPath,
         'thumbnailPath': thumbnailPath,
+        'locationLatitude': locationLatitude,
+        'locationLongitude': locationLongitude,
+        'locationAccuracyMeters': locationAccuracyMeters,
+        'locationCapturedAt': locationCapturedAt?.toIso8601String(),
       };
 
   /// Create from JSON
