@@ -81,6 +81,12 @@ class ScannedDocument {
             : DateTime.now(),
         pdfPath: json['pdfPath'] as String?,
         thumbnailPath: json['thumbnailPath'] as String?,
+        locationLatitude: (json['locationLatitude'] as num?)?.toDouble(),
+        locationLongitude: (json['locationLongitude'] as num?)?.toDouble(),
+        locationAccuracyMeters: (json['locationAccuracyMeters'] as num?)?.toDouble(),
+        locationCapturedAt: json['locationCapturedAt'] != null
+            ? DateTime.tryParse(json['locationCapturedAt'] as String)
+            : null,
       );
 
   /// Format created date for display
