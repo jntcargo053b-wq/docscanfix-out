@@ -25,6 +25,8 @@ class ScanOcrSection extends StatelessWidget {
 }
 
 class _OcrLoadingRow extends StatelessWidget {
+  const _OcrLoadingRow();
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -34,8 +36,8 @@ class _OcrLoadingRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.surfaceLight),
       ),
-      child: Row(
-        children: const [
+      child: const Row(
+        children: [
           SizedBox(
             width: 15,
             height: 15,
