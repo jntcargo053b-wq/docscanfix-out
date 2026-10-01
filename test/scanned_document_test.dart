@@ -5,6 +5,7 @@ void main() {
   group('ScannedDocument serialization', () {
     test('round-trips document fields', () {
       final createdAt = DateTime.utc(2026, 9, 28, 10, 30);
+      final locationCapturedAt = DateTime.utc(2026, 9, 28, 10, 29, 45);
       final original = ScannedDocument(
         id: 'doc-001',
         title: 'Invoice September',
@@ -13,6 +14,10 @@ void main() {
         createdAt: createdAt,
         pdfPath: '/docs/invoice.pdf',
         thumbnailPath: '/docs/thumb.jpg',
+        locationLatitude: -7.9666,
+        locationLongitude: 112.6326,
+        locationAccuracyMeters: 8.5,
+        locationCapturedAt: locationCapturedAt,
       );
 
       final restored = ScannedDocument.fromJson(original.toJson());
@@ -24,6 +29,10 @@ void main() {
       expect(restored.createdAt, createdAt);
       expect(restored.pdfPath, original.pdfPath);
       expect(restored.thumbnailPath, original.thumbnailPath);
+      expect(restored.locationLatitude, -7.9666);
+      expect(restored.locationLongitude, 112.6326);
+      expect(restored.locationAccuracyMeters, 8.5);
+      expect(restored.locationCapturedAt, locationCapturedAt);
       expect(restored.pageCount, 2);
     });
 
@@ -41,6 +50,10 @@ void main() {
       expect(restored.extractedText, isNull);
       expect(restored.pdfPath, isNull);
       expect(restored.thumbnailPath, isNull);
+      expect(restored.locationLatitude, isNull);
+      expect(restored.locationLongitude, isNull);
+      expect(restored.locationAccuracyMeters, isNull);
+      expect(restored.locationCapturedAt, isNull);
     });
   });
 
@@ -66,6 +79,10 @@ void main() {
         imagePaths: const ['/docs/a.jpg'],
         extractedText: 'Recognized text',
         createdAt: DateTime.utc(2026),
+        locationLatitude: -7.9666,
+        locationLongitude: 112.6326,
+        locationAccuracyMeters: 10,
+        locationCapturedAt: DateTime.utc(2026, 9, 28),
       );
 
       final updated = original.copyWith(title: 'Updated');
@@ -75,6 +92,10 @@ void main() {
       expect(updated.imagePaths, original.imagePaths);
       expect(updated.extractedText, original.extractedText);
       expect(updated.createdAt, original.createdAt);
+      expect(updated.locationLatitude, original.locationLatitude);
+      expect(updated.locationLongitude, original.locationLongitude);
+      expect(updated.locationAccuracyMeters, original.locationAccuracyMeters);
+      expect(updated.locationCapturedAt, original.locationCapturedAt);
     });
   });
 }
