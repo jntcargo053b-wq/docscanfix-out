@@ -90,6 +90,7 @@ class ScanController extends ChangeNotifier {
   String _processingStatus = '';
   String? _errorMessage;
   ScanLocation? _scanLocation;
+  bool _locationCaptureAttempted = false;
 
   // ── Cache for prepared images to avoid reprocessing ──
   final Map<String, String> _preparedForOcrCache = {};
@@ -184,7 +185,8 @@ class ScanController extends ChangeNotifier {
 
       // Simpan satu snapshot lokasi untuk sesi dokumen ini. Pengambilan GPS
       // bersifat opsional dan gagal tidak boleh membatalkan hasil scan.
-      if (_scanLocation == null) {
+      if (!_locationCaptureAttempted) {
+        _locationCaptureAttempted = true;
         _scanLocation = await _locationService.capture();
       }
       if (_disposed) return;
