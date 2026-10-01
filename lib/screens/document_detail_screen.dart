@@ -248,12 +248,119 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
               child: ImageGrid(
                 imagePaths: _doc.imagePaths,
                 onTap: (index) {
-                  // Navigasi ke fullscreen viewer jika ada
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => _FullScreenImageViewer(
+                        imagePaths: _doc.imagePaths,
+                        initialIndex: index,
+                        title: _doc.title,
+                      ),
+                      fullscreenDialog: true,
+                    ),
+                  );
                 },
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+/// Full-screen page viewer: keeps the complete scanned page visible (no crop),
+/// supports pinch-to-zoom/pan, and lets users move between document pages.
+class _FullScreenImageViewer extends StatefulWidget {
+  const _FullScreenImageViewer({
+    required this.imagePaths,
+    required this.initialIndex,
+    required this.title,
+  });
+
+  final List<String> imagePaths;
+  final int initialIndex;
+  final String title;
+
+  @override
+  State<_FullScreenImageViewer> createState() => _FullScreenImageViewerState();
+}
+
+class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text(
+          widget.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white),
+        ),
+        actions: [
+          if (widget.imagePaths.isNotEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: Text(
+                  '${_currentIndex + 1}/${widget.imagePaths.length}',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ),
+            ),
+        ],
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.imagePaths.length,
+        onPageChanged: (index) => setState(() => _currentIndex = index),
+        itemBuilder: (context, index) {
+          return Center(
+            child: InteractiveViewer(
+              minScale: 1,
+              maxScale: 4,
+              child: Image.file(
+                File(widget.imagePaths[index]),
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.broken_image_outlined,
+                          color: Colors.white70, size: 56),
+                      SizedBox(height: 12),
+                      Text(
+                        'Foto tidak dapat ditampilkan',
+                        style: TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
