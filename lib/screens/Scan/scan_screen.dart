@@ -152,9 +152,11 @@ class _ScanScreenState extends State<ScanScreen> {
       context,
       MaterialPageRoute(builder: (_) => const BarcodeScanScreen()),
     );
-    if (result != null && result.isNotEmpty) {
-      _controller.useBarcodeTitle(result);
-    }
+    // Layar scan dapat ditutup saat layar barcode masih terbuka.
+    // Jangan menyentuh controller atau TextEditingController setelah
+    // ScanScreen di-dispose.
+    if (!mounted || result == null || result.isEmpty) return;
+    _controller.useBarcodeTitle(result);
   }
 
   // ─── Build ─────────────────────────────────────────────────────────────────
