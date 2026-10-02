@@ -13,5 +13,16 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    test('rejects a batch when all image paths are missing', () async {
+      await expectLater(
+        PdfService().generatePdfChunked(
+          title: 'Missing images',
+          imagePaths: const ['/path/that/does/not/exist/docscan-test.jpg'],
+          temporaryOutput: true,
+        ),
+        throwsA(isA<Exception>()),
+      );
+    });
   });
 }
