@@ -70,7 +70,7 @@ jobs:
           export GRADLE_HOME="$RUNNER_TEMP/gradle-$gradle_version"
           export PATH="$GRADLE_HOME/bin:$PATH"
           gradle --version
-          test "$(gradle --version | sed -n 's/^Gradle \\([0-9.]*\\)$/\\1/p' | head -n 1)" = "$gradle_version"
+          gradle --version | grep -Fqx "Gradle $gradle_version"
 
       - name: Build Debug APK
         if: github.ref == 'refs/heads/build_branch' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
