@@ -540,6 +540,7 @@ class ScanController extends ChangeNotifier {
         title: title,
         imagePaths: preparedPaths,
         skipDownsize: true,
+        temporaryOutput: true,
       );
 
       // Dokumen belum tersimpan di titik ini (exportPdf dipanggil dari
