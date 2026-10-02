@@ -81,9 +81,9 @@ class ScanBody extends StatelessWidget {
       ),
     );
 
-    // result null berarti user membatalkan (tombol close) — tidak ada
-    // perubahan yang perlu diterapkan.
-    if (result == null) return;
+    // Layar scan bisa ditutup ketika editor masih terbuka. Jangan
+    // memperbarui controller setelah widget pemiliknya tidak lagi mounted.
+    if (!context.mounted || result == null) return;
     controller.replaceImage(index, result);
   }
 }
