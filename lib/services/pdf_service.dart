@@ -248,7 +248,18 @@ class PdfService {
       );
     }
 
-    final tier = _pageBudgetTier(imagePaths.length);
+    // Ignore paths that disappeared between scan/import and PDF export.
+    // Do this before creating output files so a missing-only batch cannot
+    // produce empty PDF chunks.
+    final existingImagePaths = <String>[];
+    for (final path in imagePaths) {
+      if (await File(path).exists()) existingImagePaths.add(path);
+    }
+    if (existingImagePaths.isEmpty) {
+      throw Exception('Tidak ada file gambar yang tersedia untuk dibuat PDF');
+    }
+
+    final tier = _pageBudgetTier(existingImagePaths.length);
     final dir = temporaryOutput
         ? await getTemporaryDirectory()
         : await getApplicationDocumentsDirectory();
@@ -261,12 +272,12 @@ class PdfService {
     final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
 
     final chunkPaths = <String>[];
-    final totalChunks = (imagePaths.length / pagesPerChunk).ceil();
+    final totalChunks = (existingImagePaths.length / pagesPerChunk).ceil();
 
     for (int c = 0; c < totalChunks; c++) {
       final start = c * pagesPerChunk;
-      final end = math.min(start + pagesPerChunk, imagePaths.length);
-      final chunkImages = imagePaths.sublist(start, end);
+      final end = math.min(start + pagesPerChunk, existingImagePaths.length);
+      final chunkImages = existingImagePaths.sublist(start, end);
 
       // pw.Document baru per chunk — sengaja dideklarasikan di dalam loop
       // (bukan di luar) supaya scope-nya berakhir tiap iterasi dan chunk
