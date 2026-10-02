@@ -114,7 +114,7 @@ class ScannerService {
     } catch (e) {
       final msg = e.toString().toLowerCase();
       if (msg.contains('permission') || msg.contains('camera')) {
-        throw ScannerException(ScannerError.permissionDenied);
+        throw const ScannerException(ScannerError.permissionDenied);
       }
       throw ScannerException(ScannerError.scanFailed, cause: e);
     }
