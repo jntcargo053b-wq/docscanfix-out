@@ -217,8 +217,25 @@ class ScannerService {
       if (!await dir.exists()) return;
 
       final cutoff = DateTime.now().subtract(maxAge);
+      // Temp directory is shared with plugins and other app features.
+      // Only purge files whose prefixes are owned by ImageEnhanceService or
+      // ScanController; never delete unrelated plugin files by age alone.
+      const appTempPrefixes = <String>[
+        'scan_snapshot_',
+        'enhanced_',
+        'compressed_',
+        'normalized_',
+        'ocr_prep_',
+        'pdf_prep_',
+      ];
+
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is! File) continue;
+        final name = entity.uri.pathSegments.isEmpty
+            ? ''
+            : entity.uri.pathSegments.last;
+        if (!appTempPrefixes.any(name.startsWith)) continue;
+
         try {
           final stat = await entity.stat();
           if (stat.modified.isBefore(cutoff)) {
