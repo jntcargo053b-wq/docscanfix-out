@@ -349,6 +349,9 @@ class ScanController extends ChangeNotifier {
   }
 
   Future<bool> saveDocument() async {
+    // Jangan biarkan pesan dari operasi sebelumnya tampil sebagai hasil
+    // operasi simpan yang baru.
+    _errorMessage = null;
     final title = titleController.text.trim();
     if (title.isEmpty) {
       _errorMessage = 'Masukkan judul dokumen';
@@ -514,6 +517,7 @@ class ScanController extends ChangeNotifier {
   /// dapat file-nya, bukan cuma dibuang ke disk.
   Future<void> exportPdf() async {
     if (_imagePaths.isEmpty || isProcessing) return;
+    _errorMessage = null;
     _setStatus(ScanStatus.processing);
     _processingStatus = 'Membuat PDF…';
     notifyListeners();
@@ -626,6 +630,7 @@ class ScanController extends ChangeNotifier {
 
   Future<void> shareImages() async {
     if (_imagePaths.isEmpty || isProcessing) return;
+    _errorMessage = null;
     _setStatus(ScanStatus.processing);
     _processingStatus = 'Membagikan…';
     skippedShareCount = 0;
