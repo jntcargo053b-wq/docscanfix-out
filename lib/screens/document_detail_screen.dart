@@ -120,6 +120,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         final chunkPaths = await _pdfService.generatePdfChunked(
           title: _doc.title,
           imagePaths: _doc.imagePaths,
+          temporaryOutput: true,
         );
         final safeTitle = _safeFileName(_doc.title);
         await Share.shareXFiles(
