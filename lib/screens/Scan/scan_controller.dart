@@ -5,6 +5,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:saver_gallery/saver_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -158,11 +159,39 @@ class ScanController extends ChangeNotifier {
       // Hashing can fail if the isolate cannot start. Keep it inside the
       // same error boundary as scanning so the controller does not remain
       // stuck in ScanStatus.scanning after an unexpected hashing failure.
-      final existingHashes = await _hashAll(_imagePaths);
+      final existingPaths = List<String>.from(_imagePaths);
+      final existingHashes = await _hashAll(existingPaths);
 
       // Hashing yields to the event loop; the screen may have been closed
-      // while it ran. Do not pass a stale BuildContext to the scanner.
-      if (!context.mounted) return;
+      // while it ran. Restore a terminal state if this controller is still
+      // alive, and never pass a stale BuildContext to the scanner.
+      if (!context.mounted) {
+        if (!_disposed) {
+          _setStatus(existingPaths.isEmpty ? ScanStatus.idle : ScanStatus.ready);
+        }
+        return;
+      }
+
+      // The native scanner may reuse/overwrite its temporary file paths
+      // between sessions. Hashing alone does not protect the bytes behind
+      // an existing path. Snapshot existing pages into unique app-owned temp
+      // files BEFORE opening the native scanner, then use those stable paths
+      // for this session. If snapshotting fails, abort safely and keep the
+      // original page list intact.
+      final stablePaths = await _snapshotExistingImages(existingPaths);
+      if (_disposed || !context.mounted) {
+        await _scannerService.cleanupFiles(
+          stablePaths.where((path) => !existingPaths.contains(path)).toList(),
+        );
+        if (!_disposed) {
+          _setStatus(existingPaths.isEmpty ? ScanStatus.idle : ScanStatus.ready);
+        }
+        return;
+      }
+      _imagePaths = stablePaths;
+      _sessionTempFiles.addAll(
+        stablePaths.where((path) => !existingPaths.contains(path)),
+      );
 
       // Dedupe sekali di controller agar halaman baru dibandingkan dengan
       // halaman sesi sebelumnya tanpa hashing batch baru dua kali.
@@ -198,6 +227,37 @@ class ScanController extends ChangeNotifier {
     } catch (e) {
       _errorMessage = 'Scan gagal. Coba lagi atau restart aplikasi.';
       _setStatus(ScanStatus.error);
+    }
+  }
+
+  /// Copy existing pages to unique app-owned temporary files before
+  /// launching the native scanner. Some scanner implementations reuse temp
+  /// paths across sessions, so keeping the original paths is not sufficient.
+  /// The original list is left untouched unless every copy succeeds.
+  Future<List<String>> _snapshotExistingImages(List<String> paths) async {
+    if (paths.isEmpty) return <String>[];
+
+    final tempDir = await getTemporaryDirectory();
+    final snapshots = <String>[];
+    try {
+      for (var i = 0; i < paths.length; i++) {
+        final source = File(paths[i]);
+        if (!await source.exists()) {
+          throw FileSystemException(
+            'Halaman lama tidak ditemukan sebelum menambah halaman.',
+            paths[i],
+          );
+        }
+        final destination = File(
+          '${tempDir.path}/scan_snapshot_${DateTime.now().microsecondsSinceEpoch}_${i}.tmp',
+        );
+        await source.copy(destination.path);
+        snapshots.add(destination.path);
+      }
+      return snapshots;
+    } catch (_) {
+      await _scannerService.cleanupFiles(snapshots);
+      rethrow;
     }
   }
 
