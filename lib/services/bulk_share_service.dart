@@ -256,6 +256,7 @@ class BulkShareService {
         final chunkPaths = await _pdfService.generatePdfChunked(
           title: doc.title,
           imagePaths: doc.imagePaths,
+          temporaryOutput: true,
         );
         for (int c = 0; c < chunkPaths.length; c++) {
           files.add(XFile(
