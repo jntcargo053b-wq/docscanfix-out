@@ -43,5 +43,28 @@ void main() {
         matches(RegExp(r'^Scan \d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$')),
       );
     });
+
+    test('save reports the current validation error, not a stale one', () async {
+      controller.titleController.clear();
+
+      expect(await controller.saveDocument(), isFalse);
+      expect(controller.errorMessage, 'Masukkan judul dokumen');
+
+      controller.titleController.text = 'Dokumen baru';
+
+      expect(await controller.saveDocument(), isFalse);
+      expect(controller.errorMessage, 'Tidak ada gambar untuk disimpan');
+    });
+
+    test('clearError removes the current validation error', () async {
+      controller.titleController.clear();
+
+      expect(await controller.saveDocument(), isFalse);
+      expect(controller.errorMessage, isNotNull);
+
+      controller.clearError();
+
+      expect(controller.errorMessage, isNull);
+    });
   });
 }
