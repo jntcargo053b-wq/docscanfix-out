@@ -226,6 +226,16 @@ class ScanController extends ChangeNotifier {
       // digabung ke halaman lama, sambil tetap disaring dari duplikat
       // terhadap snapshot hash yang diambil sebelum scan dimulai.
       final newImages = await _dedupeAgainstHashes(images, existingHashes);
+
+      // Hashing runs asynchronously. If the scan screen was closed while
+      // deduplication was in progress, dispose() may already have cleaned
+      // the session files. Do not update disposed controller state or start
+      // OCR against paths that may have been cleaned up.
+      if (_disposed || !context.mounted) {
+        await _scannerService.cleanupFiles(images);
+        return;
+      }
+
       _imagePaths = [..._imagePaths, ...newImages];
       _setStatus(ScanStatus.ready);
       _runOcr();
