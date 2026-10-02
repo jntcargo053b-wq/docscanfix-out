@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 
@@ -70,21 +72,33 @@ class ScanBody extends StatelessWidget {
   Future<void> _handleEdit(BuildContext context, int index) async {
     final imagePaths = controller.imagePaths;
     if (index < 0 || index >= imagePaths.length) return;
+    final originalPath = imagePaths[index];
 
     final result = await Navigator.push<String>(
       context,
       MaterialPageRoute(
         builder: (_) => ImageEditorScreen(
-          imagePath: imagePaths[index],
+          imagePath: originalPath,
           pageNumber: index + 1,
         ),
       ),
     );
 
-    // Layar scan bisa ditutup ketika editor masih terbuka. Jangan
-    // memperbarui controller setelah widget pemiliknya tidak lagi mounted.
-    if (!context.mounted || result == null) return;
+    // Jika layar scan ditutup saat editor masih terbuka, controller tidak
+    // dapat menerima hasilnya. Hapus file hasil edit yang kini tidak punya
+    // pemilik, tetapi jangan hapus halaman asli jika editor tidak mengubahnya.
+    if (!context.mounted) {
+      if (result != null && result != originalPath) {
+        try {
+          await File(result).delete();
+        } catch (_) {
+          // Best-effort cleanup; file mungkin sudah dibersihkan.
+        }
+      }
+      return;
+    }
+
+    if (result == null) return;
     controller.replaceImage(index, result);
   }
 }
-
