@@ -205,7 +205,15 @@ class ScanController extends ChangeNotifier {
         return;
       }
 
-      if (_disposed) return;
+      if (_disposed) {
+        // dispose() mungkin sudah berjalan ketika native scanner masih
+        // terbuka. Karena file hasil scan baru tersedia setelah await di
+        // atas, file-file ini belum tercatat di _sessionTempFiles saat
+        // dispose() melakukan cleanup. Bersihkan hasil scan di sini agar
+        // tidak tertinggal sebagai file sementara yatim.
+        await _scannerService.cleanupFiles(images);
+        return;
+      }
 
       // Semua path mentah hasil sesi scan ini dicatat untuk cleanup lifecycle
       // nanti (lihat dispose()) — termasuk yang bakal disaring sebagai
