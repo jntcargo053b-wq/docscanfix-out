@@ -240,6 +240,13 @@ class PdfService {
     PdfPageFormat pageFormat = PdfPageFormat.a4,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
+    if (pagesPerChunk <= 0) {
+      throw ArgumentError.value(
+        pagesPerChunk,
+        'pagesPerChunk',
+        'must be greater than zero',
+      );
+    }
 
     final tier = _pageBudgetTier(imagePaths.length);
     final dir = temporaryOutput
