@@ -105,6 +105,7 @@ class PdfService {
     String? extractedText,
     bool includeTextLayer = false,
     bool skipDownsize = false,
+    bool temporaryOutput = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
@@ -166,8 +167,10 @@ class PdfService {
       );
     }
 
-    final dir = await getApplicationDocumentsDirectory();
-    final pdfDir = Directory('${dir.path}/DocScan');
+    final dir = temporaryOutput
+        ? await getTemporaryDirectory()
+        : await getApplicationDocumentsDirectory();
+    final pdfDir = temporaryOutput ? dir : Directory('${dir.path}/DocScan');
     await pdfDir.create(recursive: true);
 
     final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
@@ -229,13 +232,16 @@ class PdfService {
     required String title,
     required List<String> imagePaths,
     int pagesPerChunk = 10,
+    bool temporaryOutput = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
 
     final tier = _pageBudgetTier(imagePaths.length);
-    final dir = await getApplicationDocumentsDirectory();
-    final pdfDir = Directory('${dir.path}/DocScan');
+    final dir = temporaryOutput
+        ? await getTemporaryDirectory()
+        : await getApplicationDocumentsDirectory();
+    final pdfDir = temporaryOutput ? dir : Directory('${dir.path}/DocScan');
     await pdfDir.create(recursive: true);
     final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
 
