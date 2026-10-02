@@ -536,6 +536,11 @@ class ScanController extends ChangeNotifier {
       // Check if we have cached PDF-prepared images we can reuse
       final preparedPaths = <String>[];
       for (final originalPath in _imagePaths) {
+        // The screen may be closed while image preparation is running.
+        // Do not keep processing or register new temp files after dispose()
+        // has already performed its session cleanup.
+        if (_disposed) return;
+
         // Try to find cached PDF-prepared version first (highest quality for PDF)
         if (_preparedForPdfCache.containsKey(originalPath)) {
           preparedPaths.add(_preparedForPdfCache[originalPath]!);
@@ -543,12 +548,17 @@ class ScanController extends ChangeNotifier {
         // Otherwise prepare fresh
         else {
           final prepared = await _enhanceService.prepareForPdf(originalPath);
+          if (_disposed) {
+            await _scannerService.cleanupFiles([prepared]);
+            return;
+          }
           preparedPaths.add(prepared);
           _preparedForPdfCache[originalPath] = prepared;
           _sessionTempFiles.add(prepared);
         }
       }
 
+      if (_disposed) return;
       final rawTitle = titleController.text.trim();
       final title = rawTitle.isEmpty ? _defaultTitle() : rawTitle;
 
@@ -564,6 +574,14 @@ class ScanController extends ChangeNotifier {
         skipDownsize: true,
         temporaryOutput: true,
       );
+
+      // If the user left the scan screen while PDF generation was running,
+      // don't open a share sheet from a closed screen or leave an unreferenced
+      // temporary PDF behind.
+      if (_disposed) {
+        await _pdfService.deletePdf(pdfPath);
+        return;
+      }
 
       // Dokumen belum tersimpan di titik ini (exportPdf dipanggil dari
       // layar Scan sebelum "Simpan"), jadi tidak ada tempat permanen untuk
