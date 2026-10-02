@@ -25,4 +25,17 @@ void main() {
       );
     });
   });
+
+  group('PdfService.generatePdf', () {
+    test('rejects a batch when all image paths are missing', () async {
+      await expectLater(
+        PdfService().generatePdf(
+          title: 'Missing images',
+          imagePaths: const ['/path/that/does/not/exist/docscan-single-test.jpg'],
+          temporaryOutput: true,
+        ),
+        throwsA(isA<Exception>()),
+      );
+    });
+  });
 }

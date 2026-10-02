@@ -135,6 +135,7 @@ class PdfService {
     // bukan tanggung jawab generatePdf() untuk mengubahnya lagi di sini).
     final tier = skipDownsize ? null : _pageBudgetTier(imagePaths.length);
 
+    var imagePagesAdded = 0;
     for (final path in imagePaths) {
       final file = File(path);
       if (!await file.exists()) continue;
@@ -148,9 +149,18 @@ class PdfService {
         maxDimension: tier?.maxDimension ?? 1920,
         quality: tier?.quality ?? 85,
       );
+      imagePagesAdded++;
     }
 
-    if (includeTextLayer && (extractedText?.isNotEmpty ?? false)) {
+    // A text-only PDF remains valid when the caller explicitly requested
+    // a non-empty OCR text layer. Otherwise, don't save an empty PDF when
+    // every source image disappeared before export.
+    final hasTextLayer = includeTextLayer && (extractedText?.isNotEmpty ?? false);
+    if (imagePagesAdded == 0 && !hasTextLayer) {
+      throw Exception('Tidak ada file gambar yang tersedia untuk dibuat PDF');
+    }
+
+    if (hasTextLayer) {
       pdf.addPage(
         pw.MultiPage(
           pageFormat: pageFormat,
