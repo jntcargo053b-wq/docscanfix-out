@@ -247,6 +247,24 @@ class ScannerService {
           // pembersihan file lain.
         }
       }
+
+      // PDF exports created by PdfService live in this app-owned directory.
+      // Keep recent files available to share/open, and remove only stale
+      // files after the same retention window.
+      final pdfTempDir = Directory('${dir.path}/docscan_pdf_temp');
+      if (await pdfTempDir.exists()) {
+        await for (final entity in pdfTempDir.list(followLinks: false)) {
+          if (entity is! File) continue;
+          try {
+            final stat = await entity.stat();
+            if (stat.modified.isBefore(cutoff)) {
+              await entity.delete();
+            }
+          } catch (_) {
+            // Best-effort cleanup; one failed file must not stop the rest.
+          }
+        }
+      }
     } catch (_) {
       // getTemporaryDirectory()/listing gagal total — best-effort, jangan
       // sampai mengganggu startup app.
