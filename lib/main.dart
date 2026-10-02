@@ -6,6 +6,9 @@ import 'services/scanner_service.dart';
 import 'theme/app_theme.dart';
 
 void main() {
+  // Plugin/platform-channel calls below require Flutter's binding to be ready.
+  WidgetsFlutterBinding.ensureInitialized();
+
   // PERF (startup temp cleanup): fire-and-forget, TIDAK di-await — file
   // basi dari sesi yang crash/di-kill paksa bukan hal yang harus selesai
   // sebelum UI pertama tampil (lihat catatan lengkap di
