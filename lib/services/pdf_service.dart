@@ -170,7 +170,11 @@ class PdfService {
     final dir = temporaryOutput
         ? await getTemporaryDirectory()
         : await getApplicationDocumentsDirectory();
-    final pdfDir = temporaryOutput ? dir : Directory('${dir.path}/DocScan');
+    // Keep temporary PDFs in an app-owned subdirectory so startup cleanup
+    // can safely remove stale exports without touching plugin temp files.
+    final pdfDir = temporaryOutput
+        ? Directory('${dir.path}/docscan_pdf_temp')
+        : Directory('${dir.path}/DocScan');
     await pdfDir.create(recursive: true);
 
     final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
@@ -241,7 +245,11 @@ class PdfService {
     final dir = temporaryOutput
         ? await getTemporaryDirectory()
         : await getApplicationDocumentsDirectory();
-    final pdfDir = temporaryOutput ? dir : Directory('${dir.path}/DocScan');
+    // Keep temporary PDFs in an app-owned subdirectory so startup cleanup
+    // can safely remove stale exports without touching plugin temp files.
+    final pdfDir = temporaryOutput
+        ? Directory('${dir.path}/docscan_pdf_temp')
+        : Directory('${dir.path}/DocScan');
     await pdfDir.create(recursive: true);
     final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
 
