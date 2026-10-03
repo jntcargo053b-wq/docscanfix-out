@@ -590,7 +590,13 @@ class ScanController extends ChangeNotifier {
       // tanpa ada yang tahu.
       _processingStatus = 'Membuka PDF…';
       notifyListeners();
-      await _pdfService.sharePdf(pdfPath, title);
+      try {
+        await _pdfService.sharePdf(pdfPath, title);
+      } finally {
+        // PDF ini selalu output sementara; hapus setelah share selesai agar
+        // ekspor berulang tidak menumpuk di docscan_pdf_temp.
+        await _pdfService.deletePdf(pdfPath);
+      }
     } catch (e) {
       _errorMessage = 'Gagal membuat PDF. Coba lagi.';
     } finally {
