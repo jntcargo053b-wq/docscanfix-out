@@ -192,21 +192,10 @@ class BulkShareService {
     // foto itu sendiri). Dibiarkan null: share_plus/Android tidak
     // memaksa ada subject/text untuk lampiran gambar.
     try {
-      try {
       await Share.shareXFiles(files);
     } finally {
-      // Hanya chunk PDF yang dihasilkan khusus untuk sesi ini yang
-      // sementara. PDF permanen dari doc.pdfPath tidak masuk set ini.
-      for (final path in generatedTempFiles) {
-        try {
-          await _pdfService.deletePdf(path);
-        } catch (_) {}
-      }
-    }
-    } finally {
       // ensureJpeg() may create temporary normalized copies for legacy
-      // PNG/WEBP/HEIC pages. Clean them immediately after the share flow
-      // returns instead of waiting for the next app startup.
+      // PNG/WEBP/HEIC pages. Clean them after the share flow returns.
       for (final path in generatedTempFiles) {
         try {
           await File(path).delete();
@@ -317,6 +306,16 @@ class BulkShareService {
     // FEATURE (hilangkan caption "X dokumen sebagai PDF" saat share):
     // sama seperti shareAsImages() — caption ringkasan jumlah dokumen
     // dianggap noise, dibiarkan null.
-    await Share.shareXFiles(files);
+    try {
+      await Share.shareXFiles(files);
+    } finally {
+      // Chunked PDF adalah output sementara khusus satu sesi share.
+      // PDF permanen dari doc.pdfPath tidak masuk set ini.
+      for (final path in generatedTempFiles) {
+        try {
+          await _pdfService.deletePdf(path);
+        } catch (_) {}
+      }
+    }
   }
 }
