@@ -192,7 +192,17 @@ class BulkShareService {
     // foto itu sendiri). Dibiarkan null: share_plus/Android tidak
     // memaksa ada subject/text untuk lampiran gambar.
     try {
+      try {
       await Share.shareXFiles(files);
+    } finally {
+      // Hanya chunk PDF yang dihasilkan khusus untuk sesi ini yang
+      // sementara. PDF permanen dari doc.pdfPath tidak masuk set ini.
+      for (final path in generatedTempFiles) {
+        try {
+          await _pdfService.deletePdf(path);
+        } catch (_) {}
+      }
+    }
     } finally {
       // ensureJpeg() may create temporary normalized copies for legacy
       // PNG/WEBP/HEIC pages. Clean them immediately after the share flow
@@ -225,6 +235,7 @@ class BulkShareService {
   }) async {
     _cancelRequested = false;
     final files = <XFile>[];
+    final generatedTempFiles = <String>{};
     final total = docs.length;
 
     // FIX (integrasi penamaan): sebelumnya XFile PDF dibuat tanpa `name:`,
@@ -259,6 +270,7 @@ class BulkShareService {
           temporaryOutput: true,
         );
         for (int c = 0; c < chunkPaths.length; c++) {
+          generatedTempFiles.add(chunkPaths[c]);
           files.add(XFile(
             chunkPaths[c],
             mimeType: 'application/pdf',
