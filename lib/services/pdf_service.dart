@@ -284,7 +284,8 @@ class PdfService {
     final chunkPaths = <String>[];
     final totalChunks = (existingImagePaths.length / pagesPerChunk).ceil();
 
-    for (int c = 0; c < totalChunks; c++) {
+    try {
+      for (int c = 0; c < totalChunks; c++) {
       final start = c * pagesPerChunk;
       final end = math.min(start + pagesPerChunk, existingImagePaths.length);
       final chunkImages = existingImagePaths.sublist(start, end);
@@ -313,9 +314,21 @@ class PdfService {
       // chunkPdf keluar scope di sini — tidak ada referensi tersisa ke
       // Document/MemoryImage chunk ini, GC bebas membebaskannya sebelum
       // chunk berikutnya mulai decode gambar.
-    }
+      }
 
-    return chunkPaths;
+      return chunkPaths;
+    } catch (_) {
+      // A later chunk can fail after earlier chunks were already written.
+      // The caller cannot clean those paths because this method only returns
+      // successfully after every chunk is generated. Remove partial outputs
+      // here so a failed export never leaves orphan PDFs behind.
+      for (final path in chunkPaths) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      rethrow;
+    }
   }
 
   /// Baca satu gambar, downsize kalau perlu ke [maxDimension] sisi
