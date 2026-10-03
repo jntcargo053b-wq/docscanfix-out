@@ -29,6 +29,7 @@ void main() {
       ).create();
 
       final imagePaths = <String>[];
+      final testTitle = 'Partial failure cleanup ${DateTime.now().microsecondsSinceEpoch}';
       try {
         final bytes = img.encodeJpg(img.Image(width: 2, height: 2));
         for (int i = 0; i < 30; i++) {
@@ -46,7 +47,7 @@ void main() {
 
         await expectLater(
           PdfService().generatePdfChunked(
-            title: 'Partial failure cleanup',
+            title: testTitle,
             imagePaths: imagePaths,
             pagesPerChunk: 30,
             temporaryOutput: true,
@@ -56,11 +57,18 @@ void main() {
 
         final leftovers = await pdfDir
             .list()
-            .where((entity) => entity.path.contains('Partial_failure_cleanup'))
+            .where((entity) => entity.path.contains(testTitle.replaceAll(RegExp(r'[^\\w\\s]'), '_')))
             .toList();
         expect(leftovers, isEmpty);
       } finally {
         await workDir.delete(recursive: true);
+        final stale = pdfDir.list().where((entity) =>
+            entity.path.contains(testTitle.replaceAll(RegExp(r'[^\\w\\s]'), '_')));
+        await for (final entity in stale) {
+          try {
+            await entity.delete(recursive: true);
+          } catch (_) {}
+        }
       }
     });
 
