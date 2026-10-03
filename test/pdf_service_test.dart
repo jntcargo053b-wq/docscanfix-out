@@ -31,7 +31,7 @@ void main() {
       final imagePaths = <String>[];
       final uniqueId = DateTime.now().microsecondsSinceEpoch;
       final testTitle = 'Partial failure cleanup $uniqueId';
-      final safeTitle = testTitle.replaceAll(RegExp(r'[^\\w\\s]'), '_');
+      final safeTitle = testTitle.replaceAll(RegExp(r'[^\w\s]'), '_');
 
       // Remove leftovers from an interrupted previous CI run before starting.
       final staleBefore = pdfDir.list().where(
