@@ -107,7 +107,6 @@ class PdfService {
     bool skipDownsize = false,
     bool temporaryOutput = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
-    @visibleForTesting Future<void> Function(int chunkIndex)? beforeChunkWrite,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
 
@@ -249,6 +248,7 @@ class PdfService {
     int pagesPerChunk = 10,
     bool temporaryOutput = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
+    @visibleForTesting Future<void> Function(int chunkIndex)? beforeChunkWrite,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
     if (pagesPerChunk <= 0) {
