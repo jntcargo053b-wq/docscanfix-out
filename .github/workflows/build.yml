@@ -1,3 +1,4 @@
+# CI trigger marker: keep this workflow active on build_branch for automatic push validation.
 name: Build and Release APK
 
 on:
