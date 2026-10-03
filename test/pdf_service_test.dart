@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:docscan/services/pdf_service.dart';
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -12,6 +16,52 @@ void main() {
         ),
         throwsArgumentError,
       );
+    });
+
+
+    test('cleans earlier chunks when a later chunk fails', () async {
+      final tempDir = await getTemporaryDirectory();
+      final pdfDir = Directory('${tempDir.path}/docscan_pdf_temp');
+      await pdfDir.create(recursive: true);
+
+      final workDir = await Directory(
+        '${tempDir.path}/docscan-pdf-test-${DateTime.now().microsecondsSinceEpoch}',
+      ).create();
+
+      final imagePaths = <String>[];
+      try {
+        final bytes = img.encodeJpg(img.Image(width: 2, height: 2));
+        for (int i = 0; i < 30; i++) {
+          final path = '${workDir.path}/page_${i + 1}.jpg';
+          await File(path).writeAsBytes(bytes);
+          imagePaths.add(path);
+        }
+
+        // This file exists, so it survives the preflight filter, but it is
+        // not a decodable image. With a 30-page chunk size, the first chunk
+        // is written before the second chunk fails.
+        final invalidPath = '${workDir.path}/invalid.jpg';
+        await File(invalidPath).writeAsString('not an image');
+        imagePaths.add(invalidPath);
+
+        await expectLater(
+          PdfService().generatePdfChunked(
+            title: 'Partial failure cleanup',
+            imagePaths: imagePaths,
+            pagesPerChunk: 30,
+            temporaryOutput: true,
+          ),
+          throwsA(isA<Exception>()),
+        );
+
+        final leftovers = await pdfDir
+            .list()
+            .where((entity) => entity.path.contains('Partial_failure_cleanup'))
+            .toList();
+        expect(leftovers, isEmpty);
+      } finally {
+        await workDir.delete(recursive: true);
+      }
     });
 
     test('rejects a batch when all image paths are missing', () async {
