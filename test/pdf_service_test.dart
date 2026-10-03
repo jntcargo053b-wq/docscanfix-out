@@ -38,12 +38,15 @@ void main() {
           imagePaths.add(path);
         }
 
-        // A directory exists, so it survives the preflight filter, but
-        // readAsBytes() fails deterministically when the second chunk tries
-        // to process it. This avoids relying on image decoder behavior.
+        // The file exists, so it survives the preflight filter, but its
+        // read permission is removed before export. The second chunk then
+        // fails at readAsBytes() deterministically on the Linux CI runner.
         final invalidPath = '${workDir.path}/invalid.jpg';
-        await Directory(invalidPath).create();
+        final invalidFile = File(invalidPath);
+        await invalidFile.writeAsBytes(bytes);
         imagePaths.add(invalidPath);
+        final chmod = await Process.run('chmod', <String>['000', invalidPath]);
+        expect(chmod.exitCode, 0);
 
         await expectLater(
           PdfService().generatePdfChunked(
@@ -61,6 +64,12 @@ void main() {
             .toList();
         expect(leftovers, isEmpty);
       } finally {
+        final invalidFile = File('${workDir.path}/invalid.jpg');
+        if (await invalidFile.exists()) {
+          try {
+            await Process.run('chmod', <String>['600', invalidFile.path]);
+          } catch (_) {}
+        }
         await workDir.delete(recursive: true);
         final stale = pdfDir.list().where((entity) =>
             entity.path.contains('Partial_failure_cleanup_'));
