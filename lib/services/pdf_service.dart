@@ -107,6 +107,7 @@ class PdfService {
     bool skipDownsize = false,
     bool temporaryOutput = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
+    @visibleForTesting Future<void> Function(int chunkIndex)? beforeChunkWrite,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
 
@@ -294,6 +295,7 @@ class PdfService {
       // (bukan di luar) supaya scope-nya berakhir tiap iterasi dan chunk
       // sebelumnya benar-benar bisa di-GC.
       final chunkPdf = pw.Document(title: '$title (${c + 1}/$totalChunks)', author: 'DocScan App');
+      await beforeChunkWrite?.call(c);
       for (final path in chunkImages) {
         final file = File(path);
         if (!await file.exists()) continue;
