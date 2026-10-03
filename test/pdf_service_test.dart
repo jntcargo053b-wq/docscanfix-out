@@ -29,38 +29,49 @@ void main() {
       ).create();
 
       final imagePaths = <String>[];
+      final testTitle =
+          'Partial failure cleanup ${DateTime.now().microsecondsSinceEpoch}';
       try {
         final bytes = img.encodeJpg(img.Image(width: 2, height: 2));
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 31; i++) {
           final path = '${workDir.path}/page_${i + 1}.jpg';
           await File(path).writeAsBytes(bytes);
           imagePaths.add(path);
         }
 
-        // This file exists, so it survives the preflight filter, but it is
-        // not a decodable image. With a 30-page chunk size, the first chunk
-        // is written before the second chunk fails.
-        final invalidPath = '${workDir.path}/invalid.jpg';
-        await File(invalidPath).writeAsString('not an image');
-        imagePaths.add(invalidPath);
-
         await expectLater(
           PdfService().generatePdfChunked(
-            title: 'Partial failure cleanup',
+            title: testTitle,
             imagePaths: imagePaths,
             pagesPerChunk: 30,
             temporaryOutput: true,
+            beforeChunkWrite: (chunkIndex) async {
+              if (chunkIndex == 1) {
+                throw Exception('Injected second-chunk failure');
+              }
+            },
           ),
           throwsA(isA<Exception>()),
         );
 
         final leftovers = await pdfDir
             .list()
-            .where((entity) => entity.path.contains('Partial_failure_cleanup'))
+            .where(
+              (entity) => entity.path.contains('Partial_failure_cleanup'),
+            )
             .toList();
         expect(leftovers, isEmpty);
       } finally {
         await workDir.delete(recursive: true);
+        final stale = pdfDir.list().where(
+              (entity) =>
+                  entity.path.contains('Partial_failure_cleanup_'),
+            );
+        await for (final entity in stale) {
+          try {
+            await entity.delete(recursive: true);
+          } catch (_) {}
+        }
       }
     });
 
