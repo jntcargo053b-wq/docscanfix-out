@@ -57,13 +57,13 @@ void main() {
 
         final leftovers = await pdfDir
             .list()
-            .where((entity) => entity.path.contains(testTitle.replaceAll(RegExp(r'[^\\w\\s]'), '_')))
+            .where((entity) => entity.path.contains('Partial_failure_cleanup'))
             .toList();
         expect(leftovers, isEmpty);
       } finally {
         await workDir.delete(recursive: true);
         final stale = pdfDir.list().where((entity) =>
-            entity.path.contains(testTitle.replaceAll(RegExp(r'[^\\w\\s]'), '_')));
+            entity.path.contains('Partial_failure_cleanup_'));
         await for (final entity in stale) {
           try {
             await entity.delete(recursive: true);
