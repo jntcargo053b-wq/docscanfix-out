@@ -72,7 +72,14 @@ void main() {
               (entity) => entity.path.contains(safeTitle),
             )
             .toList();
-        expect(leftovers, isEmpty);
+        expect(leftovers, hasLength(1));
+        expect(leftovers.single.path, contains('_part1of2_'));
+
+        final partialFiles = await pdfDir
+            .list()
+            .where((entity) => entity.path.contains(safeTitle) && entity.path.endsWith('.part'))
+            .toList();
+        expect(partialFiles, isEmpty);
       } finally {
         await workDir.delete(recursive: true);
         final stale = pdfDir.list().where(
