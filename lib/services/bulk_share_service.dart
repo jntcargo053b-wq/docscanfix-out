@@ -162,6 +162,7 @@ class BulkShareService {
     // jadi jaring pengaman kedua untuk data lama itu — fast path (tanpa
     // decode) untuk halaman yang memang sudah JPEG asli.
     int globalIndex = 0;
+    try {
     for (final doc in validDocs) {
       for (int i = 0; i < doc.imagePaths.length; i++) {
         final p = doc.imagePaths[i];
@@ -191,11 +192,10 @@ class BulkShareService {
     // dianggap noise yang tidak perlu (penerima cukup melihat lampiran
     // foto itu sendiri). Dibiarkan null: share_plus/Android tidak
     // memaksa ada subject/text untuk lampiran gambar.
-    try {
-      await Share.shareXFiles(files);
+    await Share.shareXFiles(files);
     } finally {
-      // ensureJpeg() may create temporary normalized copies for legacy
-      // PNG/WEBP/HEIC pages. Clean them after the share flow returns.
+      // Cleanup must also run when generation, progress callback, or
+      // cancellation fails before the platform share sheet opens.
       for (final path in generatedTempFiles) {
         try {
           await File(path).delete();
@@ -227,6 +227,7 @@ class BulkShareService {
     final generatedTempFiles = <String>{};
     final total = docs.length;
 
+    try {
     // FIX (integrasi penamaan): sebelumnya XFile PDF dibuat tanpa `name:`,
     // jadi nama file yang sampai ke aplikasi tujuan cuma ikut basename file
     // fisiknya di disk (dari PdfService.generatePdf: "<judul>_<millis>.pdf").
@@ -306,16 +307,16 @@ class BulkShareService {
     // FEATURE (hilangkan caption "X dokumen sebagai PDF" saat share):
     // sama seperti shareAsImages() — caption ringkasan jumlah dokumen
     // dianggap noise, dibiarkan null.
-    try {
-      await Share.shareXFiles(files);
+    await Share.shareXFiles(files);
     } finally {
-      // Chunked PDF adalah output sementara khusus satu sesi share.
-      // PDF permanen dari doc.pdfPath tidak masuk set ini.
+      // Chunked PDFs must also be removed when a later document fails,
+      // progress callback throws, or the user cancels before sharing.
       for (final path in generatedTempFiles) {
         try {
           await _pdfService.deletePdf(path);
         } catch (_) {}
       }
     }
+
   }
 }
