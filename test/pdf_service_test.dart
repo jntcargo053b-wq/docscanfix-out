@@ -29,24 +29,15 @@ void main() {
       ).create();
 
       final imagePaths = <String>[];
-      final testTitle = 'Partial failure cleanup ${DateTime.now().microsecondsSinceEpoch}';
+      final testTitle =
+          'Partial failure cleanup ${DateTime.now().microsecondsSinceEpoch}';
       try {
         final bytes = img.encodeJpg(img.Image(width: 2, height: 2));
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 31; i++) {
           final path = '${workDir.path}/page_${i + 1}.jpg';
           await File(path).writeAsBytes(bytes);
           imagePaths.add(path);
         }
-
-        // The file exists, so it survives the preflight filter, but its
-        // read permission is removed before export. The second chunk then
-        // fails at readAsBytes() deterministically on the Linux CI runner.
-        final invalidPath = '${workDir.path}/invalid.jpg';
-        final invalidFile = File(invalidPath);
-        await invalidFile.writeAsBytes(bytes);
-        imagePaths.add(invalidPath);
-        final chmod = await Process.run('chmod', <String>['000', invalidPath]);
-        expect(chmod.exitCode, 0);
 
         await expectLater(
           PdfService().generatePdfChunked(
@@ -54,25 +45,28 @@ void main() {
             imagePaths: imagePaths,
             pagesPerChunk: 30,
             temporaryOutput: true,
+            beforeChunkWrite: (chunkIndex) async {
+              if (chunkIndex == 1) {
+                throw Exception('Injected second-chunk failure');
+              }
+            },
           ),
           throwsA(isA<Exception>()),
         );
 
         final leftovers = await pdfDir
             .list()
-            .where((entity) => entity.path.contains('Partial_failure_cleanup'))
+            .where(
+              (entity) => entity.path.contains('Partial_failure_cleanup'),
+            )
             .toList();
         expect(leftovers, isEmpty);
       } finally {
-        final invalidFile = File('${workDir.path}/invalid.jpg');
-        if (await invalidFile.exists()) {
-          try {
-            await Process.run('chmod', <String>['600', invalidFile.path]);
-          } catch (_) {}
-        }
         await workDir.delete(recursive: true);
-        final stale = pdfDir.list().where((entity) =>
-            entity.path.contains('Partial_failure_cleanup_'));
+        final stale = pdfDir.list().where(
+              (entity) =>
+                  entity.path.contains('Partial_failure_cleanup_'),
+            );
         await for (final entity in stale) {
           try {
             await entity.delete(recursive: true);
