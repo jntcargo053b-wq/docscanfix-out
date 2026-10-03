@@ -29,8 +29,20 @@ void main() {
       ).create();
 
       final imagePaths = <String>[];
-      final testTitle =
-          'Partial failure cleanup ${DateTime.now().microsecondsSinceEpoch}';
+      final uniqueId = DateTime.now().microsecondsSinceEpoch;
+      final testTitle = 'Partial failure cleanup $uniqueId';
+      final safeTitle = testTitle.replaceAll(RegExp(r'[^\\w\\s]'), '_');
+
+      // Remove leftovers from an interrupted previous CI run before starting.
+      final staleBefore = pdfDir.list().where(
+            (entity) => entity.path.contains(safeTitle),
+          );
+      await for (final entity in staleBefore) {
+        try {
+          await entity.delete(recursive: true);
+        } catch (_) {}
+      }
+
       try {
         final bytes = img.encodeJpg(img.Image(width: 2, height: 2));
         for (int i = 0; i < 31; i++) {
@@ -57,7 +69,7 @@ void main() {
         final leftovers = await pdfDir
             .list()
             .where(
-              (entity) => entity.path.contains('Partial_failure_cleanup'),
+              (entity) => entity.path.contains(safeTitle),
             )
             .toList();
         expect(leftovers, isEmpty);
@@ -65,7 +77,7 @@ void main() {
         await workDir.delete(recursive: true);
         final stale = pdfDir.list().where(
               (entity) =>
-                  entity.path.contains('Partial_failure_cleanup_'),
+                  entity.path.contains(safeTitle),
             );
         await for (final entity in stale) {
           try {
