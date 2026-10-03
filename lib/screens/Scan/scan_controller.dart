@@ -674,6 +674,7 @@ class ScanController extends ChangeNotifier {
       final title = rawTitle.isEmpty ? _defaultTitle() : rawTitle;
       final safeTitle = _safeFileName(title);
       final files = <XFile>[];
+      final generatedTempFiles = <String>{};
       for (int i = 0; i < _imagePaths.length; i++) {
         String normalizedPath;
         try {
@@ -684,15 +685,11 @@ class ScanController extends ChangeNotifier {
           skippedShareCount++;
           continue;
         }
-        // Catatan: kalau ensureJpeg() sempat membuat file baru (halaman
-        // ini bukan JPEG asli), file barunya TIDAK dihapus eksplisit di
-        // sini — OS/aplikasi tujuan mungkin masih membaca file lewat
-        // share sheet sesaat setelah Future ini selesai (sama seperti
-        // alasan dispose() ImageEditorScreen menghindari hapus dini).
-        // Dibiarkan ikut dibersihkan oleh
-        // ScannerService.purgeStaleTempFiles() (jaring pengaman umum
-        // untuk semua file temp app ini, jalan tiap startup) alih-alih
-        // dihapus segera setelah shareXFiles() selesai.
+        // ensureJpeg() returns the original path for a real JPEG. Only a
+        // newly normalized copy is temporary and safe to clean after share.
+        if (normalizedPath != _imagePaths[i]) {
+          generatedTempFiles.add(normalizedPath);
+        }
         // FEATURE (hilangkan label "Hal N" dari nama file saat share):
         // sebelumnya nama file selalu diakhiri "_hal${i+1}.jpg" — kalau
         // aplikasi tujuan gagal mengenali lampiran sebagai foto (mis.
@@ -712,7 +709,11 @@ class ScanController extends ChangeNotifier {
             'Tidak ada halaman yang bisa dibagikan (format gambar tidak dikenali).';
         return;
       }
-      await Share.shareXFiles(files, subject: title, text: title);
+      try {
+        await Share.shareXFiles(files, subject: title, text: title);
+      } finally {
+        await _scannerService.cleanupFiles(generatedTempFiles.toList());
+      }
     } catch (e) {
       _errorMessage = 'Gagal membagikan gambar. Coba lagi.';
     } finally {
