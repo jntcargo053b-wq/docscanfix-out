@@ -61,26 +61,43 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       final safeTitle = _safeFileName(_doc.title);
       final imagePaths =
           _doc.imagePaths.where((p) => File(p).existsSync()).toList();
-      final existingFiles = <XFile>[
-        for (int i = 0; i < imagePaths.length; i++)
+      final generatedTempFiles = <String>{};
+      final existingFiles = <XFile>[];
+
+      for (int i = 0; i < imagePaths.length; i++) {
+        final normalizedPath =
+            await _enhanceService.ensureJpeg(imagePaths[i]);
+        if (normalizedPath != imagePaths[i]) {
+          generatedTempFiles.add(normalizedPath);
+        }
+        existingFiles.add(
           XFile(
-            await _enhanceService.ensureJpeg(imagePaths[i]),
+            normalizedPath,
             mimeType: 'image/jpeg',
             name: '${safeTitle}_${i + 1}.jpg',
           ),
-      ];
-
-      if (existingFiles.isEmpty) {
-        _showError('Tidak ada gambar yang tersedia');
-        return;
+        );
       }
 
-      // FEATURE (hilangkan caption "Dokumen: <judul>" saat share): subject
-      // tetap dipertahankan (judul dokumen di kolom subject email/dsb
-      // masih berguna sebagai identitas), tapi text caption yang
-      // mengulang "Dokumen: " dihapus — dianggap noise di atas subject
-      // yang sudah ada.
-      await Share.shareXFiles(existingFiles, subject: _doc.title);
+      try {
+        if (existingFiles.isEmpty) {
+          _showError('Tidak ada gambar yang tersedia');
+          return;
+        }
+
+        // FEATURE (hilangkan caption "Dokumen: <judul>" saat share): subject
+        // tetap dipertahankan (judul dokumen di kolom subject/email/dsb
+        // masih berguna sebagai identitas), tapi text caption yang
+        // mengulang "Dokumen: " dihapus — dianggap noise di atas subject
+        // yang sudah ada.
+        await Share.shareXFiles(existingFiles, subject: _doc.title);
+      } finally {
+        for (final path in generatedTempFiles) {
+          try {
+            await File(path).delete();
+          } catch (_) {}
+        }
+      }
     } catch (e) {
       _showError('Gagal berbagi gambar: $e');
     } finally {
@@ -123,17 +140,25 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
           temporaryOutput: true,
         );
         final safeTitle = _safeFileName(_doc.title);
-        await Share.shareXFiles(
-          [
-            for (int c = 0; c < chunkPaths.length; c++)
-              XFile(
-                chunkPaths[c],
-                mimeType: 'application/pdf',
-                name: '${safeTitle}_bag${c + 1}dari${chunkPaths.length}.pdf',
-              ),
-          ],
-          subject: _doc.title,
-        );
+        try {
+          await Share.shareXFiles(
+            [
+              for (int c = 0; c < chunkPaths.length; c++)
+                XFile(
+                  chunkPaths[c],
+                  mimeType: 'application/pdf',
+                  name: '${safeTitle}_bag${c + 1}dari${chunkPaths.length}.pdf',
+                ),
+            ],
+            subject: _doc.title,
+          );
+        } finally {
+          for (final path in chunkPaths) {
+            try {
+              await _pdfService.deletePdf(path);
+            } catch (_) {}
+          }
+        }
         return;
       }
 
