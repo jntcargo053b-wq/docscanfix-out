@@ -326,6 +326,7 @@ class PdfService {
         '_${DateTime.now().microsecondsSinceEpoch}.pdf';
     final outFile = File('${pdfDir.path}/$fileName');
     final tempFile = File('${outFile.path}.part');
+    var finalFileCreated = false;
 
     try {
       await beforeWrite?.call(chunkIndex);
@@ -345,6 +346,7 @@ class PdfService {
       final bytes = await chunkPdf.save();
       await tempFile.writeAsBytes(bytes);
       await tempFile.rename(outFile.path);
+      finalFileCreated = true;
       return outFile.path;
     } catch (_) {
       // Only this in-flight chunk is cleaned. Earlier successful chunks
@@ -353,13 +355,11 @@ class PdfService {
         if (await tempFile.exists()) await tempFile.delete();
       } catch (_) {}
 
-      // Normally the final file cannot exist before rename succeeds. Keep
-      // this guard for the case where rename succeeds and a later operation
-      // throws in a future implementation: only delete the file belonging
-      // to this invocation when it was created here.
-      try {
-        if (await outFile.exists()) await outFile.delete();
-      } catch (_) {}
+      if (finalFileCreated) {
+        try {
+          await outFile.delete();
+        } catch (_) {}
+      }
       rethrow;
     }
   }
