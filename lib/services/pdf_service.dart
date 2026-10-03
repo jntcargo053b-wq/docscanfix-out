@@ -259,9 +259,6 @@ class PdfService {
       );
     }
 
-    // Ignore paths that disappeared between scan/import and PDF export.
-    // Do this before creating output files so a missing-only batch cannot
-    // produce empty PDF chunks.
     final existingImagePaths = <String>[];
     for (final path in imagePaths) {
       if (await File(path).exists()) existingImagePaths.add(path);
@@ -274,61 +271,95 @@ class PdfService {
     final dir = temporaryOutput
         ? await getTemporaryDirectory()
         : await getApplicationDocumentsDirectory();
-    // Keep temporary PDFs in an app-owned subdirectory so startup cleanup
-    // can safely remove stale exports without touching plugin temp files.
     final pdfDir = temporaryOutput
         ? Directory('${dir.path}/docscan_pdf_temp')
         : Directory('${dir.path}/DocScan');
     await pdfDir.create(recursive: true);
-    final safeTitle = title.replaceAll(RegExp(r'[^\w\s]'), '_');
+    final safeTitle = title.replaceAll(RegExp(r'[^\\w\\s]'), '_');
 
-    final chunkPaths = <String>[];
+    final generatedFiles = <String>[];
     final totalChunks = (existingImagePaths.length / pagesPerChunk).ceil();
 
-    try {
-      for (int c = 0; c < totalChunks; c++) {
+    for (int c = 0; c < totalChunks; c++) {
       final start = c * pagesPerChunk;
       final end = math.min(start + pagesPerChunk, existingImagePaths.length);
       final chunkImages = existingImagePaths.sublist(start, end);
 
-      // pw.Document baru per chunk — sengaja dideklarasikan di dalam loop
-      // (bukan di luar) supaya scope-nya berakhir tiap iterasi dan chunk
-      // sebelumnya benar-benar bisa di-GC.
-      final chunkPdf = pw.Document(title: '$title (${c + 1}/$totalChunks)', author: 'DocScan App');
-      await beforeChunkWrite?.call(c);
-      for (final path in chunkImages) {
+      final chunkPath = await _generateSinglePdfChunk(
+        title: title,
+        safeTitle: safeTitle,
+        chunkIndex: c,
+        totalChunks: totalChunks,
+        imagePaths: chunkImages,
+        pdfDir: pdfDir,
+        pageFormat: pageFormat,
+        maxDimension: tier.maxDimension,
+        quality: tier.quality,
+        beforeWrite: beforeChunkWrite,
+      );
+      generatedFiles.add(chunkPath);
+    }
+
+    // Successful chunks are intentionally preserved if a later chunk fails.
+    // _generateSinglePdfChunk() owns cleanup of only its current chunk.
+    return generatedFiles;
+  }
+
+  Future<String> _generateSinglePdfChunk({
+    required String title,
+    required String safeTitle,
+    required int chunkIndex,
+    required int totalChunks,
+    required List<String> imagePaths,
+    required Directory pdfDir,
+    required PdfPageFormat pageFormat,
+    required int maxDimension,
+    required int quality,
+    Future<void> Function(int chunkIndex)? beforeWrite,
+  }) async {
+    final chunkPdf = pw.Document(
+      title: '$title (${chunkIndex + 1}/$totalChunks)',
+      author: 'DocScan App',
+    );
+
+    final fileName = '${safeTitle}_part${chunkIndex + 1}of$totalChunks'
+        '_${DateTime.now().microsecondsSinceEpoch}.pdf';
+    final outFile = File('${pdfDir.path}/$fileName');
+    final tempFile = File('${outFile.path}.part');
+
+    try {
+      await beforeWrite?.call(chunkIndex);
+
+      for (final path in imagePaths) {
         final file = File(path);
         if (!await file.exists()) continue;
         await _addImagePage(
           chunkPdf,
           path,
           pageFormat,
-          maxDimension: tier.maxDimension,
-          quality: tier.quality,
+          maxDimension: maxDimension,
+          quality: quality,
         );
       }
 
-      final fileName = '${safeTitle}_part${c + 1}of$totalChunks'
-          '_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final outFile = File('${pdfDir.path}/$fileName');
-      await outFile.writeAsBytes(await chunkPdf.save());
-      chunkPaths.add(outFile.path);
-      // chunkPdf keluar scope di sini — tidak ada referensi tersisa ke
-      // Document/MemoryImage chunk ini, GC bebas membebaskannya sebelum
-      // chunk berikutnya mulai decode gambar.
-      }
-
-      return chunkPaths;
+      final bytes = await chunkPdf.save();
+      await tempFile.writeAsBytes(bytes);
+      await tempFile.rename(outFile.path);
+      return outFile.path;
     } catch (_) {
-      // A later chunk can fail after earlier chunks were already written.
-      // The caller cannot clean those paths because this method only returns
-      // successfully after every chunk is generated. Remove partial outputs
-      // here so a failed export never leaves orphan PDFs behind.
-      for (final path in chunkPaths) {
-        try {
-          await File(path).delete();
-        } catch (_) {}
-      }
+      // Only this in-flight chunk is cleaned. Earlier successful chunks
+      // returned by previous iterations are deliberately left intact.
+      try {
+        if (await tempFile.exists()) await tempFile.delete();
+      } catch (_) {}
+
+      // Normally the final file cannot exist before rename succeeds. Keep
+      // this guard for the case where rename succeeds and a later operation
+      // throws in a future implementation: only delete the file belonging
+      // to this invocation when it was created here.
+      try {
+        if (await outFile.exists()) await outFile.delete();
+      } catch (_) {}
       rethrow;
     }
   }
