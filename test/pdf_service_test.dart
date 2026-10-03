@@ -37,11 +37,11 @@ void main() {
           imagePaths.add(path);
         }
 
-        // This file exists, so it survives the preflight filter, but it is
-        // not a decodable image. With a 30-page chunk size, the first chunk
-        // is written before the second chunk fails.
+        // A directory exists, so it survives the preflight filter, but
+        // readAsBytes() fails deterministically when the second chunk tries
+        // to process it. This avoids relying on image decoder behavior.
         final invalidPath = '${workDir.path}/invalid.jpg';
-        await File(invalidPath).writeAsString('not an image');
+        await Directory(invalidPath).create();
         imagePaths.add(invalidPath);
 
         await expectLater(
