@@ -15,6 +15,7 @@ class DocumentCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback? onLongPress;
   final VoidCallback? onSelectToggle;
+  final String searchQuery;
 
   const DocumentCard({
     super.key,
@@ -25,6 +26,7 @@ class DocumentCard extends StatelessWidget {
     this.isSelected = false,
     this.onLongPress,
     this.onSelectToggle,
+    this.searchQuery = '',
   });
 
   @override
@@ -143,13 +145,13 @@ class DocumentCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          document.title,
+        _HighlightedText(
+          text: document.title,
+          query: searchQuery,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
           maxLines: 1,
-          overflow: TextOverflow.ellipsis,
         ),
         const Gap(4),
         Text(
@@ -158,7 +160,9 @@ class DocumentCard extends StatelessWidget {
                 color: AppTheme.textSecondary,
               ),
         ),
-        if (document.extractedText?.trim().isNotEmpty == true) ...[
+        if (searchQuery.trim().isNotEmpty)
+          ..._buildSearchSnippet(context)
+        else if (document.extractedText?.trim().isNotEmpty == true) ...[
           const Gap(4),
           Text(
             document.extractedText!,
@@ -171,6 +175,24 @@ class DocumentCard extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  List<Widget> _buildSearchSnippet(BuildContext context) {
+    final snippet = document.searchSnippet(searchQuery);
+    if (snippet == null) return const <Widget>[];
+
+    return [
+      const Gap(4),
+      _HighlightedText(
+        text: snippet,
+        query: searchQuery,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: AppTheme.textSecondary,
+              height: 1.35,
+            ),
+        maxLines: 2,
+      ),
+    ];
   }
 
   Widget _buildMenu(BuildContext context) {
@@ -192,6 +214,63 @@ class DocumentCard extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+class _HighlightedText extends StatelessWidget {
+  const _HighlightedText({
+    required this.text,
+    required this.query,
+    required this.style,
+    required this.maxLines,
+  });
+
+  final String text;
+  final String query;
+  final TextStyle? style;
+  final int maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return Text(
+        text,
+        style: style,
+        maxLines: maxLines,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    final spans = <TextSpan>[];
+    final lowerText = text.toLowerCase();
+    final lowerQuery = normalizedQuery.toLowerCase();
+    var cursor = 0;
+
+    while (cursor < text.length) {
+      final index = lowerText.indexOf(lowerQuery, cursor);
+      if (index < 0) {
+        spans.add(TextSpan(text: text.substring(cursor)));
+        break;
+      }
+      if (index > cursor) {
+        spans.add(TextSpan(text: text.substring(cursor, index)));
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(index, index + normalizedQuery.length),
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+      );
+      cursor = index + normalizedQuery.length;
+    }
+
+    return RichText(
+      maxLines: maxLines,
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(style: style, children: spans),
     );
   }
 }
