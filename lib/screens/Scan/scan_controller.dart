@@ -907,34 +907,51 @@ class ScanController extends ChangeNotifier {
     }
   }
 
-  Future<void> rerunOcrPage(int index) async {
-    if (_disposed || _isOcrRunning || index < 0 || index >= _imagePaths.length) return;
-    final prepared = _preparedForOcrCache[_imagePaths[index]];
-    if (prepared == null) {
-      await rerunOcr();
-      return;
+  Future<void> rerunOcrPage(int index) {
+    if (_disposed || _isOcrRunning || index < 0 || index >= _imagePaths.length) {
+      return Future<void>.value();
     }
 
+    final prepared = _preparedForOcrCache[_imagePaths[index]];
+    if (prepared == null) {
+      return rerunOcr();
+    }
+
+    final future = _rerunOcrPageBody(index, prepared);
+    _ocrFuture = future;
+    return future;
+  }
+
+  Future<void> _rerunOcrPageBody(int index, String prepared) async {
+    _isOcrRunning = true;
     _ocrPageStatuses[index] = OcrPageStatus.running;
     _ocrPageErrors[index] = null;
     notifyListeners();
 
-    OcrPageResult? pageResult;
     try {
+      OcrPageResult? pageResult;
       await _ocrService.extractTextFromImages(
         [prepared],
         onPageCompleted: (_, result) => pageResult = result,
       );
-      pageResult ??= const OcrPageResult(text: '', success: false, errorMessage: 'OCR gagal diproses.');
-      _ocrPageTexts[index] = pageResult!.text;
-      _ocrPageStatuses[index] = pageResult!.success ? OcrPageStatus.success : OcrPageStatus.failed;
-      _ocrPageErrors[index] = pageResult!.errorMessage;
+      pageResult ??= const OcrPageResult(
+        text: '',
+        success: false,
+        errorMessage: 'OCR gagal diproses.',
+      );
+      _ocrPageTexts[index] = pageResult.text;
+      _ocrPageStatuses[index] = pageResult.success
+          ? OcrPageStatus.success
+          : OcrPageStatus.failed;
+      _ocrPageErrors[index] = pageResult.errorMessage;
       _rebuildExtractedText();
     } catch (_) {
       _ocrPageStatuses[index] = OcrPageStatus.failed;
       _ocrPageErrors[index] = 'OCR gagal diproses.';
+    } finally {
+      _isOcrRunning = false;
+      notifyListeners();
     }
-    notifyListeners();
   }
 
   void _rebuildExtractedText() {
