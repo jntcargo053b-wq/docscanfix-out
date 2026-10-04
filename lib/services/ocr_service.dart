@@ -40,7 +40,7 @@ class OcrService {
   // untuk dipakai independen/paralel. Ini murni soal THROUGHPUT (jumlah
   // halaman per detik), BUKAN soal resolusi/kualitas gambar — akurasi per
   // halaman tidak berubah sama sekali (ImageEnhanceService.prepareForOcr()
-  // yang menentukan itu, downsize 1600px + grayscale, tidak disentuh).
+  // yang menentukan itu, downsize 2048px + grayscale, tidak disentuh).
   // Ukuran pool sengaja kecil (2, bukan lebih) — ML Kit text recognition
   // sudah cukup berat per panggilan (CPU/NPU-bound di native), pool besar
   // berisiko malah memperlambat (kontensi resource) alih-alih mempercepat,
@@ -149,13 +149,16 @@ class OcrService {
             _safeExtractResult(imagePaths[i], slot: i - start),
         ]);
 
-        if (cancelled) break; // berhenti setelah batch selesai
-
+        // Batch yang sudah selesai harus tetap dipublikasikan, meskipun
+        // total timeout terpicu tepat saat batch ini selesai. Jangan buang
+        // hasil pasangan halaman yang sudah berhasil diproses.
         for (int i = start; i < end; i++) {
           final pageResult = batchResults[i - start];
           results[i] = pageResult.text;
           onPageCompleted?.call(i, pageResult);
         }
+
+        if (cancelled) break; // berhenti setelah batch yang selesai dilaporkan
       }
     } catch (_) {
       // partial result tetap dikembalikan
