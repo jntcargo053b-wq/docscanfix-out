@@ -40,7 +40,10 @@ Uint8List _processPageImage(_PageImageParams p) {
   if (decoded == null) return p.rawBytes;
   final oriented = img.bakeOrientation(decoded);
   if (oriented.width <= p.maxDimension && oriented.height <= p.maxDimension) {
-    return p.rawBytes;
+    // Even without resizing, bakeOrientation may have changed the pixel
+    // layout according to the source EXIF orientation. Encode the oriented
+    // pixels instead of returning the original EXIF-dependent bytes.
+    return Uint8List.fromList(img.encodeJpg(oriented, quality: p.quality));
   }
 
   final resized = img.copyResize(
