@@ -254,7 +254,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: text));
               if (!dialogContext.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
                 const SnackBar(content: Text('Teks OCR berhasil disalin.')),
               );
             },
