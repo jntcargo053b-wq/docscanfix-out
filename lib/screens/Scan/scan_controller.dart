@@ -18,6 +18,8 @@ import '../../models/scanned_document.dart';
 
 enum ScanStatus { idle, scanning, ready, processing, done, error }
 
+enum OcrPageStatus { idle, running, success, failed }
+
 // PERF FIX (review keseluruhan — sama seperti ScannerService.
 // _hashFilesForDedupe): _hashAll()/_dedupeAgainstHashes() di bawah dulunya
 // juga md5.convert(await File.readAsBytes()) LANGSUNG di UI isolate untuk
@@ -78,6 +80,9 @@ class ScanController extends ChangeNotifier {
   List<String> _imagePaths = [];
   String? _extractedText;
   bool _isOcrRunning = false;
+  List<OcrPageStatus> _ocrPageStatuses = <OcrPageStatus>[];
+  List<String> _ocrPageTexts = <String>[];
+  List<String?> _ocrPageErrors = <String?>[];
   // Token generasi untuk _runOcr() — lihat komentar di _runOcr().
   int _ocrRunId = 0;
   // FIX (P0 — Save tidak menunggu OCR selesai): pegangan ke run OCR yang
@@ -112,6 +117,13 @@ class ScanController extends ChangeNotifier {
   List<String> get imagePaths => List.unmodifiable(_imagePaths);
   String? get extractedText => _extractedText;
   bool get isOcrRunning => _isOcrRunning;
+  List<OcrPageStatus> get ocrPageStatuses => List.unmodifiable(_ocrPageStatuses);
+  double get ocrProgress {
+    if (_ocrPageStatuses.isEmpty) return 0;
+    final completed = _ocrPageStatuses.where((s) => s == OcrPageStatus.success || s == OcrPageStatus.failed).length;
+    return completed / _ocrPageStatuses.length;
+  }
+  int get ocrFailedPages => _ocrPageStatuses.where((s) => s == OcrPageStatus.failed).length;
   bool get isScanning => _status == ScanStatus.scanning;
   bool get isProcessing => _status == ScanStatus.processing;
   bool get hasImages => _imagePaths.isNotEmpty;
@@ -237,6 +249,7 @@ class ScanController extends ChangeNotifier {
       }
 
       _imagePaths = [..._imagePaths, ...newImages];
+      _resetOcrPageState();
       _setStatus(ScanStatus.ready);
       _runOcr();
     } on ScannerException catch (e) {
@@ -325,6 +338,7 @@ class ScanController extends ChangeNotifier {
     // Konten halaman berubah: cache OCR/PDF untuk path lama sudah basi.
     _preparedForOcrCache.remove(oldPath);
     _preparedForPdfCache.remove(oldPath);
+    _resetOcrPageState();
 
     notifyListeners();
     _runOcr();
@@ -349,6 +363,7 @@ class ScanController extends ChangeNotifier {
     // path yang benar-benar dihapus.
     _preparedForOcrCache.remove(removedPath);
     _preparedForPdfCache.remove(removedPath);
+    _resetOcrPageState();
 
     notifyListeners();
     // FIX terkait: sebelumnya tidak ada _runOcr() di sini sama sekali,
@@ -803,6 +818,9 @@ class ScanController extends ChangeNotifier {
   /// SEBELUM membaca _extractedText untuk dibungkus ke ScannedDocument.
   Future<void> _runOcr() {
     if (_imagePaths.isEmpty) {
+      _ocrPageStatuses = <OcrPageStatus>[];
+      _ocrPageTexts = <String>[];
+      _ocrPageErrors = <String?>[];
       // FIX (P1 — OCR stale saat semua halaman dihapus): sebelumnya
       // early-return di sini cuma `return Future.value()` tanpa menyentuh
       // _extractedText sama sekali. Kalau user menghapus SEMUA halaman
@@ -835,37 +853,105 @@ class ScanController extends ChangeNotifier {
   Future<void> _runOcrBody() async {
     final runId = ++_ocrRunId;
     _isOcrRunning = true;
+    _ocrPageStatuses = List<OcrPageStatus>.filled(_imagePaths.length, OcrPageStatus.running);
+    _ocrPageTexts = List<String>.filled(_imagePaths.length, '');
+    _ocrPageErrors = List<String?>.filled(_imagePaths.length, null);
     notifyListeners();
 
     try {
-      // Prepare images for OCR, using cache if available
       final preparedPaths = <String>[];
       for (final originalPath in _imagePaths) {
         if (_preparedForOcrCache.containsKey(originalPath)) {
-          // Use cached prepared version
           preparedPaths.add(_preparedForOcrCache[originalPath]!);
         } else {
-          // Prepare fresh and cache
           final prepared = await _enhanceService.prepareForOcr(originalPath);
-          if (runId != _ocrRunId) return; // sudah ada _runOcr() lebih baru
+          if (runId != _ocrRunId) return;
           preparedPaths.add(prepared);
           _preparedForOcrCache[originalPath] = prepared;
           _sessionTempFiles.add(prepared);
         }
       }
 
-      final text = await _ocrService.extractTextFromImages(preparedPaths);
-      if (runId != _ocrRunId) return; // hasil basi — sudah ada run lebih baru
+      final text = await _ocrService.extractTextFromImages(
+        preparedPaths,
+        onPageCompleted: (index, result) {
+          if (runId != _ocrRunId || index >= _ocrPageStatuses.length) return;
+          _ocrPageTexts[index] = result.text;
+          _ocrPageErrors[index] = result.errorMessage;
+          _ocrPageStatuses[index] = result.success ? OcrPageStatus.success : OcrPageStatus.failed;
+          notifyListeners();
+        },
+      );
+      if (runId != _ocrRunId) return;
       _extractedText = text;
+      for (var i = 0; i < _ocrPageStatuses.length; i++) {
+        if (_ocrPageStatuses[i] == OcrPageStatus.running) {
+          _ocrPageStatuses[i] = OcrPageStatus.failed;
+          _ocrPageErrors[i] = 'OCR tidak selesai dalam batas waktu.';
+        }
+      }
     } catch (_) {
       if (runId != _ocrRunId) return;
       _extractedText = null;
+      for (var i = 0; i < _ocrPageStatuses.length; i++) {
+        if (_ocrPageStatuses[i] == OcrPageStatus.running) {
+          _ocrPageStatuses[i] = OcrPageStatus.failed;
+          _ocrPageErrors[i] = 'OCR gagal diproses.';
+        }
+      }
     } finally {
       if (runId == _ocrRunId) {
         _isOcrRunning = false;
         notifyListeners();
       }
     }
+  }
+
+  Future<void> rerunOcrPage(int index) async {
+    if (_disposed || _isOcrRunning || index < 0 || index >= _imagePaths.length) return;
+    final prepared = _preparedForOcrCache[_imagePaths[index]];
+    if (prepared == null) {
+      await rerunOcr();
+      return;
+    }
+
+    _ocrPageStatuses[index] = OcrPageStatus.running;
+    _ocrPageErrors[index] = null;
+    notifyListeners();
+
+    OcrPageResult? pageResult;
+    try {
+      await _ocrService.extractTextFromImages(
+        [prepared],
+        onPageCompleted: (_, result) => pageResult = result,
+      );
+      pageResult ??= const OcrPageResult(text: '', success: false, errorMessage: 'OCR gagal diproses.');
+      _ocrPageTexts[index] = pageResult!.text;
+      _ocrPageStatuses[index] = pageResult!.success ? OcrPageStatus.success : OcrPageStatus.failed;
+      _ocrPageErrors[index] = pageResult!.errorMessage;
+      _rebuildExtractedText();
+    } catch (_) {
+      _ocrPageStatuses[index] = OcrPageStatus.failed;
+      _ocrPageErrors[index] = 'OCR gagal diproses.';
+    }
+    notifyListeners();
+  }
+
+  void _rebuildExtractedText() {
+    final buffer = StringBuffer();
+    for (var i = 0; i < _ocrPageTexts.length; i++) {
+      final pageText = _ocrPageTexts[i];
+      if (pageText.trim().isEmpty) continue;
+      if (buffer.isNotEmpty) buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
+      buffer.write(pageText);
+    }
+    _extractedText = buffer.toString();
+  }
+
+  void _resetOcrPageState() {
+    _ocrPageStatuses = List<OcrPageStatus>.filled(_imagePaths.length, OcrPageStatus.idle);
+    _ocrPageTexts = List<String>.filled(_imagePaths.length, '');
+    _ocrPageErrors = List<String?>.filled(_imagePaths.length, null);
   }
 
   /// Re-run OCR for the current pages without changing the OCR engine.
