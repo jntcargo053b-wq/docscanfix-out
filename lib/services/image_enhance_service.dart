@@ -166,8 +166,8 @@ class ImageEnhanceService {
 
   /// Resize + grayscale sebelum OCR.
   ///
-  /// ML Kit bekerja optimal pada gambar ≤1600px dan grayscale menghemat
-  /// ~⅓ memori tanpa menurunkan akurasi teks. Dijalankan di isolate.
+  /// Batas 2048px mempertahankan lebih banyak detail karakter kecil.
+  /// Grayscale tetap dipakai untuk menghemat memori. Dijalankan di isolate.
   Future<String> prepareForOcr(String imagePath) =>
       compute(_prepareForOcrIsolate, imagePath);
 
@@ -738,12 +738,15 @@ class ImageEnhanceService {
     img.Image? image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
 
-    // Resize bila lebih lebar/tinggi dari 1600px
-    if (image.width > 1600 || image.height > 1600) {
+    // Resize bila lebih lebar/tinggi dari 2048px. Batas ini sengaja
+    // lebih tinggi dari pipeline lama (1600px) agar karakter kecil tidak
+    // kehilangan detail sebelum masuk ke ML Kit.
+    const maxOcrDimension = 2048;
+    if (image.width > maxOcrDimension || image.height > maxOcrDimension) {
       image = img.copyResize(
         image,
-        width: image.width > image.height ? 1600 : -1,
-        height: image.height >= image.width ? 1600 : -1,
+        width: image.width > image.height ? maxOcrDimension : -1,
+        height: image.height >= image.width ? maxOcrDimension : -1,
         interpolation: img.Interpolation.linear,
       );
     }
@@ -751,7 +754,7 @@ class ImageEnhanceService {
     // Grayscale — ML Kit teks tidak butuh warna
     image = img.grayscale(image);
 
-    return _saveTempNamed(image, 'ocr_prep', quality: 88);
+    return _saveTempNamed(image, 'ocr_prep', quality: 95);
   }
 
   /// Resize ke max 1920px + kompres ke quality 85 sebelum masuk PDF pipeline.
