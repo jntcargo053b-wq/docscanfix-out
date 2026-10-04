@@ -190,7 +190,7 @@ class OcrService {
           .timeout(
             _perPageTimeout,
             onTimeout: () => throw TimeoutException(
-              'OCR timeout setelah ' + _perPageTimeout.inSeconds.toString() + 's',
+              'OCR timeout setelah ${_perPageTimeout.inSeconds}s',
             ),
           );
       return OcrPageResult(text: recognizedText.text, success: true);
