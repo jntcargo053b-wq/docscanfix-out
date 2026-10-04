@@ -81,16 +81,22 @@ void main() {
         expect(createdPaths.single, contains('_part1of2_'));
         expect(createdPaths.single, endsWith('.pdf'));
 
-        final partialFiles = afterPaths
+        final createdPartialFiles = createdPaths
             .where((path) => path.endsWith('.part'))
             .toList();
-        expect(partialFiles, isEmpty);
+        expect(createdPartialFiles, isEmpty);
       } finally {
         await workDir.delete(recursive: true);
-        final stale = pdfDir.list();
-        await for (final entity in stale) {
+        final afterCleanupPaths = <String>{
+          ...await pdfDir
+              .list()
+              .whereType<File>()
+              .map((file) => file.path)
+              .toList(),
+        };
+        for (final path in afterCleanupPaths.difference(beforePaths)) {
           try {
-            await entity.delete(recursive: true);
+            await File(path).delete();
           } catch (_) {}
         }
       }
