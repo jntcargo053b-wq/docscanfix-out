@@ -2,6 +2,8 @@ class ScannedDocument {
   final String id;
   final String title;
   final List<String> imagePaths;
+  /// OCR text aligned with [imagePaths]. Empty entries mean no text or failure.
+  final List<String> pageTexts;
   final String? extractedText;
   final DateTime createdAt;
   final String? pdfPath;
@@ -11,6 +13,7 @@ class ScannedDocument {
     required this.id,
     required this.title,
     required this.imagePaths,
+    this.pageTexts = const [],
     this.extractedText,
     required this.createdAt,
     this.pdfPath,
@@ -37,6 +40,7 @@ class ScannedDocument {
       : id = '',
         title = '',
         imagePaths = [],
+        pageTexts = const [],
         extractedText = null,
         createdAt = DateTime.now(),
         pdfPath = null,
@@ -47,6 +51,7 @@ class ScannedDocument {
         'id': id,
         'title': title,
         'imagePaths': imagePaths,
+        'pageTexts': pageTexts,
         'extractedText': extractedText,
         'createdAt': createdAt.toIso8601String(),
         'pdfPath': pdfPath,
@@ -59,6 +64,7 @@ class ScannedDocument {
         id: json['id'] as String? ?? '',
         title: json['title'] as String? ?? 'Untitled',
         imagePaths: List<String>.from(json['imagePaths'] as List? ?? []),
+        pageTexts: List<String>.from(json['pageTexts'] as List? ?? []),
         extractedText: json['extractedText'] as String?,
         createdAt: json['createdAt'] != null
             ? DateTime.parse(json['createdAt'] as String)
@@ -84,6 +90,7 @@ class ScannedDocument {
     String? id,
     String? title,
     List<String>? imagePaths,
+    List<String>? pageTexts,
     String? extractedText,
     DateTime? createdAt,
     String? pdfPath,
@@ -93,6 +100,7 @@ class ScannedDocument {
         id: id ?? this.id,
         title: title ?? this.title,
         imagePaths: imagePaths ?? this.imagePaths,
+        pageTexts: pageTexts ?? this.pageTexts,
         extractedText: extractedText ?? this.extractedText,
         createdAt: createdAt ?? this.createdAt,
         pdfPath: pdfPath ?? this.pdfPath,
