@@ -9,6 +9,7 @@ void main() {
         id: 'doc-001',
         title: 'Invoice September',
         imagePaths: const ['/docs/page-1.jpg', '/docs/page-2.jpg'],
+        pageTexts: const ['Page one OCR', 'Page two OCR'],
         extractedText: 'Invoice number 123',
         createdAt: createdAt,
         pdfPath: '/docs/invoice.pdf',
@@ -39,6 +40,7 @@ void main() {
       expect(restored.id, 'legacy-001');
       expect(restored.title, 'Legacy document');
       expect(restored.imagePaths, ['/docs/legacy.jpg']);
+      expect(restored.pageTexts, isEmpty);
       expect(restored.extractedText, isNull);
       expect(restored.pdfPath, isNull);
       expect(restored.thumbnailPath, isNull);
