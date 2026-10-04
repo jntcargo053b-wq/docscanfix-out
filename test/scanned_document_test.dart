@@ -19,6 +19,7 @@ void main() {
 
       expect(restored.id, original.id);
       expect(restored.title, original.title);
+      expect(restored.pageTexts, original.pageTexts);
       expect(restored.imagePaths, original.imagePaths);
       expect(restored.extractedText, original.extractedText);
       expect(restored.createdAt, createdAt);
