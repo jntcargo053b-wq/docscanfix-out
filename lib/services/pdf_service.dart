@@ -107,6 +107,7 @@ class PdfService {
     required String title,
     required List<String> imagePaths,
     String? extractedText,
+    List<String>? pageTexts,
     bool includeTextLayer = false,
     bool skipDownsize = false,
     bool temporaryOutput = false,
@@ -145,10 +146,15 @@ class PdfService {
       if (!await file.exists()) continue;
 
       // Baca → buat page → biarkan imageBytes keluar scope agar GC bisa bebaskan
+      final pageIndex = imagePagesAdded;
+      final pageText = pageTexts != null && pageIndex < pageTexts.length
+          ? pageTexts[pageIndex]
+          : null;
       await _addImagePage(
         pdf,
         path,
         pageFormat,
+        pageText: includeTextLayer ? pageText : null,
         skipDownsize: skipDownsize,
         maxDimension: tier?.maxDimension ?? 1920,
         quality: tier?.quality ?? 85,
@@ -249,6 +255,7 @@ class PdfService {
   Future<List<String>> generatePdfChunked({
     required String title,
     required List<String> imagePaths,
+    List<String>? pageTexts,
     int pagesPerChunk = 10,
     bool temporaryOutput = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
@@ -265,8 +272,14 @@ class PdfService {
     }
 
     final existingImagePaths = <String>[];
-    for (final path in imagePaths) {
-      if (await File(path).exists()) existingImagePaths.add(path);
+    final existingPageTexts = <String>[];
+    for (var i = 0; i < imagePaths.length; i++) {
+      if (await File(imagePaths[i]).exists()) {
+        existingImagePaths.add(imagePaths[i]);
+        existingPageTexts.add(
+          pageTexts != null && i < pageTexts.length ? pageTexts[i] : '',
+        );
+      }
     }
     if (existingImagePaths.isEmpty) {
       throw Exception('Tidak ada file gambar yang tersedia untuk dibuat PDF');
@@ -296,6 +309,7 @@ class PdfService {
         chunkIndex: c,
         totalChunks: totalChunks,
         imagePaths: chunkImages,
+        pageTexts: existingPageTexts.sublist(start, end),
         pdfDir: pdfDir,
         pageFormat: pageFormat,
         maxDimension: tier.maxDimension,
@@ -317,6 +331,7 @@ class PdfService {
     required int chunkIndex,
     required int totalChunks,
     required List<String> imagePaths,
+    required List<String> pageTexts,
     required Directory pdfDir,
     required PdfPageFormat pageFormat,
     required int maxDimension,
@@ -337,13 +352,15 @@ class PdfService {
     try {
       await beforeWrite?.call(chunkIndex);
 
-      for (final path in imagePaths) {
+      for (var i = 0; i < imagePaths.length; i++) {
+        final path = imagePaths[i];
         final file = File(path);
         if (!await file.exists()) continue;
         await _addImagePage(
           chunkPdf,
           path,
           pageFormat,
+          pageText: i < pageTexts.length ? pageTexts[i] : null,
           maxDimension: maxDimension,
           quality: quality,
         );
@@ -377,6 +394,7 @@ class PdfService {
     pw.Document pdf,
     String imagePath,
     PdfPageFormat pageFormat, {
+    String? pageText,
     bool skipDownsize = false,
     int maxDimension = 1920,
     int quality = 85,
@@ -402,9 +420,24 @@ class PdfService {
       pw.Page(
         pageFormat: pageFormat,
         margin: pw.EdgeInsets.zero,
-        build: (_) => pw.FullPage(
-          ignoreMargins: true,
-          child: pw.Image(image, fit: pw.BoxFit.contain),
+        build: (_) => pw.Stack(
+          children: [
+            pw.FullPage(
+              ignoreMargins: true,
+              child: pw.Image(image, fit: pw.BoxFit.contain),
+            ),
+            if (pageText != null && pageText.trim().isNotEmpty)
+              pw.Opacity(
+                opacity: 0,
+                child: pw.Padding(
+                  padding: const pw.EdgeInsets.all(1),
+                  child: pw.Text(
+                    pageText.trim(),
+                    style: const pw.TextStyle(fontSize: 1),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
