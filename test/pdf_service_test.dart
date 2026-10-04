@@ -71,8 +71,8 @@ void main() {
         // Tidak boleh ada partial file untuk chunk kedua.
         final partialFiles = await pdfDir
             .list()
-            .whereType<File>()
-            .where((file) => file.path.endsWith('.part'))
+            .where((entity) => entity is File)
+            .where((entity) => (entity as File).path.endsWith('.part'))
             .toList();
 
         expect(partialFiles, isEmpty);
