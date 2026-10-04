@@ -420,6 +420,151 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       ),
     );
   }
+  Future<void> _managePages() async {
+    if (_isSharing || _isExportingPdf || _doc.imagePaths.length < 2) return;
+
+    final hasPageTexts = _doc.pageTexts.length == _doc.imagePaths.length;
+    final workingPaths = List<String>.from(_doc.imagePaths);
+    final workingTexts = hasPageTexts
+        ? List<String>.from(_doc.pageTexts)
+        : <String>[];
+
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          return AlertDialog(
+            title: const Text('Atur halaman'),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: MediaQuery.sizeOf(dialogContext).height * 0.62,
+              child: ReorderableListView.builder(
+                buildDefaultDragHandles: true,
+                itemCount: workingPaths.length,
+                onReorder: (oldIndex, newIndex) {
+                  if (newIndex > oldIndex) newIndex -= 1;
+                  final path = workingPaths.removeAt(oldIndex);
+                  workingPaths.insert(newIndex, path);
+                  if (hasPageTexts) {
+                    final text = workingTexts.removeAt(oldIndex);
+                    workingTexts.insert(newIndex, text);
+                  }
+                  setDialogState(() {});
+                },
+                itemBuilder: (context, index) {
+                  final path = workingPaths[index];
+                  return ListTile(
+                    key: ValueKey(path),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                    leading: SizedBox(
+                      width: 54,
+                      height: 72,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(path),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.broken_image_outlined,
+                          ),
+                        ),
+                      ),
+                    ),
+                    title: Text('Halaman ${index + 1}'),
+                    subtitle: hasPageTexts &&
+                            workingTexts[index].trim().isNotEmpty
+                        ? const Text('OCR tersedia')
+                        : const Text('Geser untuk mengurutkan'),
+                    trailing: IconButton(
+                      tooltip: 'Hapus halaman',
+                      onPressed: workingPaths.length <= 1
+                          ? null
+                          : () {
+                              workingPaths.removeAt(index);
+                              if (hasPageTexts) workingTexts.removeAt(index);
+                              setDialogState(() {});
+                            },
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Simpan'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (changed != true || !mounted) return;
+    if (workingPaths.length == _doc.imagePaths.length &&
+        workingPaths.join('|') == _doc.imagePaths.join('|')) {
+      return;
+    }
+
+    setState(() => _isExportingPdf = true);
+    try {
+      final newThumbnail =
+          await _enhanceService.generateThumbnail(workingPaths.first);
+      final oldThumbnail = _doc.thumbnailPath;
+      final oldPdf = _doc.pdfPath;
+      final updated = _doc.copyWith(
+        imagePaths: workingPaths,
+        pageTexts: hasPageTexts ? workingTexts : const [],
+        clearPdfPath: true,
+        thumbnailPath: newThumbnail,
+      );
+
+      await _storageService.updateDocument(updated, immediate: true);
+
+      final removedPaths = _doc.imagePaths
+          .where((path) => !workingPaths.contains(path))
+          .toList(growable: false);
+      for (final path in removedPaths) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      if (oldPdf != null) {
+        try {
+          await File(oldPdf).delete();
+        } catch (_) {}
+      }
+      if (oldThumbnail != null && oldThumbnail != newThumbnail) {
+        try {
+          await File(oldThumbnail).delete();
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _doc = updated;
+        _pageOcrTexts = List<String>.generate(
+          workingPaths.length,
+          (index) => hasPageTexts ? workingTexts[index] : '',
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Urutan halaman berhasil diperbarui.')),
+      );
+    } catch (e) {
+      if (mounted) {
+        _showError('Gagal memperbarui halaman: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
+
   // ── Build ────────────────────────────────────────────────────────
 
   @override
@@ -434,6 +579,13 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
             tooltip: 'Bagikan',
             icon: const Icon(Icons.share_outlined),
             onPressed: _isSharing ? null : _shareAsImages,
+          ),
+          IconButton(
+            tooltip: 'Atur halaman',
+            icon: const Icon(Icons.view_list_outlined),
+            onPressed: _isExportingPdf || _isSharing || _doc.imagePaths.length < 2
+                ? null
+                : _managePages,
           ),
           IconButton(
             tooltip: 'Ekspor PDF',
