@@ -868,6 +868,16 @@ class ScanController extends ChangeNotifier {
     }
   }
 
+  /// Re-run OCR for the current pages without changing the OCR engine.
+  /// Prepared-image cache is intentionally retained to avoid unnecessary
+  /// image conversion when the user only wants recognition repeated.
+  Future<void> rerunOcr() async {
+    if (_disposed || _imagePaths.isEmpty || _isOcrRunning) return;
+    _extractedText = null;
+    notifyListeners();
+    await _runOcr();
+  }
+
   /// Clear prepared image caches to free memory
   void _clearPreparedCache() {
     _preparedForOcrCache.clear();
