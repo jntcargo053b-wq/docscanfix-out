@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:docscan/services/pdf_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() {
   setUpAll(() {
@@ -21,8 +22,8 @@ void main() {
       );
     });
 
-    test('cleans earlier chunks when a later chunk fails', () async {
-      final tempDir = Directory.systemTemp;
+    test('preserves earlier chunks when a later chunk fails', () async {
+      final tempDir = await getTemporaryDirectory();
       final pdfDir = Directory('${tempDir.path}/docscan_pdf_temp');
       await pdfDir.create(recursive: true);
 
