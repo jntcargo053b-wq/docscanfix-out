@@ -2,6 +2,19 @@ import 'dart:async';
 import 'dart:io';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
+
+class OcrPageResult {
+  final String text;
+  final bool success;
+  final String? errorMessage;
+
+  const OcrPageResult({
+    required this.text,
+    required this.success,
+    this.errorMessage,
+  });
+}
+
 class OcrService {
   static final OcrService _instance = OcrService._internal();
   factory OcrService() => _instance;
@@ -104,11 +117,20 @@ class OcrService {
   /// baik saja. Sekarang tiap panggilan individual dibungkus try/catch
   /// sendiri — satu halaman gagal cuma jadi teks kosong untuk halaman itu,
   /// halaman lain tetap diproses.
-  Future<String> extractTextFromImages(List<String> imagePaths) async {
-    return _withOcrQueue<String>(() => _extractTextFromImagesImpl(imagePaths));
+  Future<String> extractTextFromImages(
+    List<String> imagePaths, {
+    void Function(int index, OcrPageResult result)? onPageCompleted,
+  }) async {
+    return _withOcrQueue<String>(() => _extractTextFromImagesImpl(
+      imagePaths,
+      onPageCompleted: onPageCompleted,
+    ));
   }
 
-  Future<String> _extractTextFromImagesImpl(List<String> imagePaths) async {
+  Future<String> _extractTextFromImagesImpl(
+    List<String> imagePaths, {
+    void Function(int index, OcrPageResult result)? onPageCompleted,
+  }) async {
     final results = List<String>.filled(imagePaths.length, '');
     bool cancelled = false;
 
@@ -124,13 +146,15 @@ class OcrService {
 
         final batchResults = await Future.wait([
           for (int i = start; i < end; i++)
-            _safeExtract(imagePaths[i], slot: i - start),
+            _safeExtractResult(imagePaths[i], slot: i - start),
         ]);
 
         if (cancelled) break; // berhenti setelah batch selesai
 
         for (int i = start; i < end; i++) {
-          results[i] = batchResults[i - start];
+          final pageResult = batchResults[i - start];
+          results[i] = pageResult.text;
+          onPageCompleted?.call(i, pageResult);
         }
       }
     } catch (_) {
@@ -155,11 +179,33 @@ class OcrService {
   /// halaman tidak ikut melempar ke [Future.wait] pemanggil (yang akan
   /// membatalkan seluruh batch, termasuk halaman lain yang baik-baik
   /// saja) — lihat catatan lengkap di [extractTextFromImages].
-  Future<String> _safeExtract(String imagePath, {required int slot}) async {
+  Future<OcrPageResult> _safeExtractResult(
+    String imagePath, {
+    required int slot,
+  }) async {
     try {
-      return await extractTextFromImage(imagePath, slot: slot);
-    } catch (_) {
-      return '';
+      final inputImage = InputImage.fromFile(File(imagePath));
+      final recognizedText = await _recognizerAt(slot)
+          .processImage(inputImage)
+          .timeout(
+            _perPageTimeout,
+            onTimeout: () => throw TimeoutException(
+              'OCR timeout setelah ' + _perPageTimeout.inSeconds.toString() + 's',
+            ),
+          );
+      return OcrPageResult(text: recognizedText.text, success: true);
+    } on TimeoutException catch (e) {
+      return OcrPageResult(
+        text: '',
+        success: false,
+        errorMessage: e.message ?? 'OCR timeout',
+      );
+    } catch (e) {
+      return OcrPageResult(
+        text: '',
+        success: false,
+        errorMessage: 'OCR gagal: $e',
+      );
     }
   }
 
