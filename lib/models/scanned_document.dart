@@ -28,12 +28,41 @@ class ScannedDocument {
   String? _searchIndexCache;
 
   String get _searchIndex => _searchIndexCache ??=
-      '${title.toLowerCase()} ${(extractedText ?? '').toLowerCase()}';
+      '${title.toLowerCase()} ${(extractedText ?? '').toLowerCase()} ${pageTexts.join(' ').toLowerCase()}';
 
   /// Cek apakah dokumen cocok dengan [lowerCaseQuery] (harus sudah lowercase
   /// & trimmed oleh pemanggil, supaya tidak diulang per-dokumen).
   bool matchesQuery(String lowerCaseQuery) =>
       _searchIndex.contains(lowerCaseQuery);
+
+
+
+  /// Returns a short OCR/title excerpt around the first match.
+  /// The returned text is intended for list previews, not for exporting.
+  String? searchSnippet(String lowerCaseQuery, {int radius = 58}) {
+    final query = lowerCaseQuery.trim().toLowerCase();
+    if (query.isEmpty) return null;
+
+    final sources = <String>[
+      title,
+      if (extractedText?.trim().isNotEmpty == true) extractedText!,
+      ...pageTexts.where((text) => text.trim().isNotEmpty),
+    ];
+
+    for (final source in sources) {
+      final lower = source.toLowerCase();
+      final matchIndex = lower.indexOf(query);
+      if (matchIndex < 0) continue;
+
+      final start = matchIndex > radius ? matchIndex - radius : 0;
+      final end = (matchIndex + query.length + radius).clamp(0, source.length);
+      var snippet = source.substring(start, end).replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (start > 0) snippet = '…$snippet';
+      if (end < source.length) snippet = '$snippet…';
+      return snippet;
+    }
+    return null;
+  }
 
   /// Empty document for safe defaults
   ScannedDocument.empty()
