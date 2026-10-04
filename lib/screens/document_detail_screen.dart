@@ -145,6 +145,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         final chunkPaths = await _pdfService.generatePdfChunked(
           title: _doc.title,
           imagePaths: _doc.imagePaths,
+          pageTexts: _doc.pageTexts,
           temporaryOutput: true,
         );
         final safeTitle = _safeFileName(_doc.title);
@@ -177,7 +178,9 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         pdfPath = await _pdfService.generatePdf(
           title: _doc.title,
           imagePaths: _doc.imagePaths,
+          pageTexts: _doc.pageTexts,
           extractedText: _doc.extractedText,
+          includeTextLayer: _doc.pageTexts.length == _doc.imagePaths.length,
         );
         final updated = _doc.copyWith(pdfPath: pdfPath);
         // FIX (P1 — updateDocument() critical masih deferred): sama
