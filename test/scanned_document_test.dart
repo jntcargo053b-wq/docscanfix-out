@@ -79,5 +79,24 @@ void main() {
       expect(updated.extractedText, original.extractedText);
       expect(updated.createdAt, original.createdAt);
     });
+
+    test('can clear cached PDF and thumbnail paths', () {
+      final original = ScannedDocument(
+        id: 'doc-004',
+        title: 'Cached',
+        imagePaths: const ['/docs/a.jpg'],
+        createdAt: DateTime.utc(2026),
+        pdfPath: '/docs/a.pdf',
+        thumbnailPath: '/docs/a-thumb.jpg',
+      );
+
+      final updated = original.copyWith(
+        clearPdfPath: true,
+        clearThumbnailPath: true,
+      );
+
+      expect(updated.pdfPath, isNull);
+      expect(updated.thumbnailPath, isNull);
+    });
   });
 }
