@@ -610,6 +610,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return DocumentCard(
           key: ValueKey(doc.id),
           document: doc,
+          searchQuery: _searchQuery,
           isSelectionMode: _selectionMode,
           isSelected: _selectedIds.contains(doc.id),
           onLongPress: () {
