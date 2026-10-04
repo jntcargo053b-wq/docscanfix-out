@@ -62,6 +62,21 @@ void main() {
       expect(document.matchesQuery('NOT PRESENT'), isFalse);
     });
 
+    test('search includes per-page OCR and returns a focused snippet', () {
+      final document = ScannedDocument(
+        id: 'doc-006',
+        title: 'Receipt',
+        imagePaths: const ['/docs/a.jpg'],
+        pageTexts: const ['Customer order number ABC-12345 and delivery address'],
+        createdAt: DateTime.utc(2026),
+      );
+
+      expect(document.matchesQuery('abc-12345'), isTrue);
+      final snippet = document.searchSnippet('ABC-12345');
+      expect(snippet, isNotNull);
+      expect(snippet, contains('ABC-12345'));
+    });
+
     test('copyWith preserves fields not explicitly changed', () {
       final original = ScannedDocument(
         id: 'doc-003',
