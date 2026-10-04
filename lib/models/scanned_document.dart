@@ -95,6 +95,8 @@ class ScannedDocument {
     DateTime? createdAt,
     String? pdfPath,
     String? thumbnailPath,
+    bool clearPdfPath = false,
+    bool clearThumbnailPath = false,
   }) =>
       ScannedDocument(
         id: id ?? this.id,
@@ -103,8 +105,9 @@ class ScannedDocument {
         pageTexts: pageTexts ?? this.pageTexts,
         extractedText: extractedText ?? this.extractedText,
         createdAt: createdAt ?? this.createdAt,
-        pdfPath: pdfPath ?? this.pdfPath,
-        thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+        pdfPath: clearPdfPath ? null : (pdfPath ?? this.pdfPath),
+        thumbnailPath:
+            clearThumbnailPath ? null : (thumbnailPath ?? this.thumbnailPath),
       );
 
   @override
