@@ -1,5 +1,6 @@
 # CI trigger marker: keep this workflow active on build_branch for automatic push validation.
 # CI trigger: validate PDF regression test after deterministic chunk-test fix.
+# CI trigger: validate analyzer fixes for PDF callback and Stream filtering.
 name: Build and Release APK
 
 on:
