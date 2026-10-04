@@ -38,12 +38,13 @@ Uint8List _processPageImage(_PageImageParams p) {
 
   final decoded = img.decodeImage(p.rawBytes);
   if (decoded == null) return p.rawBytes;
-  if (decoded.width <= p.maxDimension && decoded.height <= p.maxDimension) {
+  final oriented = img.bakeOrientation(decoded);
+  if (oriented.width <= p.maxDimension && oriented.height <= p.maxDimension) {
     return p.rawBytes;
   }
 
   final resized = img.copyResize(
-    decoded,
+    oriented,
     width: decoded.width > decoded.height ? p.maxDimension : -1,
     height: decoded.height >= decoded.width ? p.maxDimension : -1,
     interpolation: img.Interpolation.linear,

@@ -307,6 +307,7 @@ class ImageEnhanceService {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+    image = img.bakeOrientation(image);
     image = img.copyRotate(image, angle: angle);
     return await _saveTemp(image);
   }
@@ -315,6 +316,7 @@ class ImageEnhanceService {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+    image = img.bakeOrientation(image);
     image = img.flipHorizontal(image);
     return await _saveTemp(image);
   }
@@ -325,6 +327,7 @@ class ImageEnhanceService {
     if (image == null) {
       throw Exception('Gagal decode gambar: ${p.imagePath}');
     }
+    image = img.bakeOrientation(image);
     final x = (p.left * image.width).round().clamp(0, image.width - 1);
     final y = (p.top * image.height).round().clamp(0, image.height - 1);
     final w =
@@ -355,6 +358,7 @@ class ImageEnhanceService {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+    image = img.bakeOrientation(image);
 
     // PROFILING: _correctIllumination() adalah loop per-pixel (O(width×
     // height), dengan clamp+divide per channel) — kandidat kuat jadi
@@ -622,6 +626,7 @@ class ImageEnhanceService {
     if (image == null) {
       throw Exception('Gagal decode gambar: ${p.imagePath}');
     }
+    image = img.bakeOrientation(image);
 
     if (p.grayscale) {
       image = img.grayscale(image);
@@ -659,6 +664,7 @@ class ImageEnhanceService {
     if (image == null) {
       throw Exception('Gagal decode gambar: ${p.imagePath}');
     }
+    image = img.bakeOrientation(image);
 
     // Resize jika lebih besar dari maxDimension
     if (image.width > p.maxDimension || image.height > p.maxDimension) {
@@ -702,6 +708,7 @@ class ImageEnhanceService {
     final bytes = await File(imagePath).readAsBytes();
     var image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+    image = img.bakeOrientation(image);
 
     const canvasSize = 200;
     final fitted = image.width >= image.height
@@ -731,12 +738,13 @@ class ImageEnhanceService {
     return outPath;
   }
 
-  /// Resize ke max 1600px lebar + konversi grayscale untuk OCR.
+  /// Resize ke max 2048px + konversi grayscale untuk OCR.
   /// Grayscale hemat ~⅓ memori dan tidak menurunkan akurasi ML Kit.
   Future<String> _processPrepareForOcr(String imagePath) async {
     final bytes = await File(imagePath).readAsBytes();
     img.Image? image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+    image = img.bakeOrientation(image);
 
     // Resize bila lebih lebar/tinggi dari 2048px. Batas ini sengaja
     // lebih tinggi dari pipeline lama (1600px) agar karakter kecil tidak
@@ -762,6 +770,7 @@ class ImageEnhanceService {
     final bytes = await File(imagePath).readAsBytes();
     img.Image? image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+    image = img.bakeOrientation(image);
 
     if (image.width > 1920 || image.height > 1920) {
       image = img.copyResize(

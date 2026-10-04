@@ -142,11 +142,9 @@ class ScannerService {
   /// Import dari galeri.
   Future<List<String>?> importFromGallery() async {
     try {
-      final List<XFile> images = await _imagePicker.pickMultiImage(
-        imageQuality: 90,
-        maxWidth: 2048,
-        maxHeight: 2048,
-      );
+      // Preserve original gallery bytes; OCR/PDF perform controlled
+      // preprocessing later so import itself does not degrade the source.
+      final List<XFile> images = await _imagePicker.pickMultiImage();
       if (images.isEmpty) return null;
       return images.map((img) => img.path).toList();
     } catch (e) {
