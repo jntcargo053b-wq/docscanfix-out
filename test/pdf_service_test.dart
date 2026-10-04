@@ -24,8 +24,8 @@ void main() {
 
     test('preserves earlier chunks when a later chunk fails', () async {
       final tempDir = await Directory.systemTemp.createTemp('docscan-pdf-test-root-');
-      final pathProviderChannel =
-          const MethodChannel('plugins.flutter.io/path_provider');
+      const pathProviderChannel =
+          MethodChannel('plugins.flutter.io/path_provider');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
         pathProviderChannel,
