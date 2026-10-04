@@ -267,7 +267,7 @@ class ScanController extends ChangeNotifier {
           );
         }
         final destination = File(
-          '${tempDir.path}/scan_snapshot_${DateTime.now().microsecondsSinceEpoch}_${i}.tmp',
+          '${tempDir.path}/scan_snapshot_${DateTime.now().microsecondsSinceEpoch}_$i.tmp',
         );
         await source.copy(destination.path);
         snapshots.add(destination.path);
