@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
 import '../services/image_enhance_service.dart';
+import '../services/ocr_service.dart';
 import '../services/pdf_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/image_grid.dart';
@@ -303,7 +304,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         final pageText = updatedPages[pageIndex].trim();
         if (pageText.isNotEmpty) {
           aggregate.add(
-            '--- Halaman ' + (pageIndex + 1).toString() + ' ---\n$pageText',
+            '--- Halaman ${pageIndex + 1} ---\n$pageText',
           );
         }
       }
@@ -323,7 +324,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'OCR halaman ' + (index + 1).toString() + ' gagal: $e',
+              'OCR halaman ${index + 1} gagal: $e',
             ),
           ),
         );
