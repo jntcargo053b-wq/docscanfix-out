@@ -249,7 +249,7 @@ class PdfService {
     bool temporaryOutput = false,
     PdfPageFormat pageFormat = PdfPageFormat.a4,
     @visibleForTesting Future<void> Function(int chunkIndex)? beforeChunkWrite,
-    @visibleForTesting void Function(String path)? onChunkGenerated,
+    void Function(String path)? onChunkGenerated,
   }) async {
     if (imagePaths.isEmpty) throw Exception('Tidak ada gambar untuk dibuat PDF');
     if (pagesPerChunk <= 0) {
