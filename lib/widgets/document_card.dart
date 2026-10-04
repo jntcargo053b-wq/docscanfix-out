@@ -158,7 +158,7 @@ class DocumentCard extends StatelessWidget {
                 color: AppTheme.textSecondary,
               ),
         ),
-        if (document.extractedText != null) ...[
+        if (document.extractedText?.trim().isNotEmpty == true) ...[
           const Gap(4),
           Text(
             document.extractedText!,
