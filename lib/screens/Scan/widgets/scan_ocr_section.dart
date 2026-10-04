@@ -29,8 +29,22 @@ class ScanOcrSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isRunning) return _OcrLoadingRow(progress: progress, pageStatuses: pageStatuses);
-    if (extractedText != null && extractedText!.trim().isNotEmpty || pageStatuses.any((s) => s == OcrPageStatus.failed)) {
-      return _OcrResultCard(text: extractedText ?? '', onRerun: onRerun, pageStatuses: pageStatuses, onRetryPage: onRetryPage);
+    final hasFailedPage =
+        pageStatuses.any((s) => s == OcrPageStatus.failed);
+    final hasCompletedOcr = pageStatuses.isNotEmpty &&
+        pageStatuses.every(
+          (s) =>
+              s == OcrPageStatus.success || s == OcrPageStatus.failed,
+        );
+    if ((extractedText != null && extractedText!.trim().isNotEmpty) ||
+        hasFailedPage ||
+        hasCompletedOcr) {
+      return _OcrResultCard(
+        text: extractedText ?? '',
+        onRerun: onRerun,
+        pageStatuses: pageStatuses,
+        onRetryPage: onRetryPage,
+      );
     }
     return const SizedBox.shrink();
   }
@@ -156,7 +170,9 @@ class _OcrResultCard extends StatelessWidget {
           ),
           const Gap(8),
           Text(
-            text,
+            text.trim().isEmpty
+                ? 'OCR selesai, tetapi tidak ada teks yang terdeteksi.'
+                : text,
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
