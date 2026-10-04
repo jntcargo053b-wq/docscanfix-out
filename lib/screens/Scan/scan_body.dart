@@ -53,6 +53,9 @@ class ScanBody extends StatelessWidget {
             isRunning: controller.isOcrRunning,
             extractedText: controller.extractedText,
             onRerun: controller.rerunOcr,
+            pageStatuses: controller.ocrPageStatuses,
+            progress: controller.ocrProgress,
+            onRetryPage: controller.rerunOcrPage,
           ),
           const Gap(24),
           ScanActionButtons(
