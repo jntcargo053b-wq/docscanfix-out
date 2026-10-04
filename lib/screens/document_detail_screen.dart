@@ -288,10 +288,14 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     try {
       final prepared =
           await _enhanceService.prepareForOcr(_doc.imagePaths[index]);
-      final text = await OcrService().extractTextFromImage(prepared);
+      String text;
       try {
-        await File(prepared).delete();
-      } catch (_) {}
+        text = await OcrService().extractTextFromImage(prepared);
+      } finally {
+        try {
+          await File(prepared).delete();
+        } catch (_) {}
+      }
       final updatedPages = List<String>.from(_pageOcrTexts);
       updatedPages[index] = text;
       final aggregate = <String>[];
