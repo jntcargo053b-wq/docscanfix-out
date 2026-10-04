@@ -550,7 +550,7 @@ class ScanController extends ChangeNotifier {
     try {
       // Check if we have cached PDF-prepared images we can reuse
       final preparedPaths = <String>[];
-      for (final originalPath in _imagePaths) {
+      for (final originalPath in originalPaths) {
         // The screen may be closed while image preparation is running.
         // Do not keep processing or register new temp files after dispose()
         // has already performed its session cleanup.
@@ -852,8 +852,9 @@ class ScanController extends ChangeNotifier {
 
   Future<void> _runOcrBody() async {
     final runId = ++_ocrRunId;
+    final originalPaths = List<String>.from(_imagePaths);
     _isOcrRunning = true;
-    _ocrPageStatuses = List<OcrPageStatus>.filled(_imagePaths.length, OcrPageStatus.running);
+    _ocrPageStatuses = List<OcrPageStatus>.filled(originalPaths.length, OcrPageStatus.running);
     _ocrPageTexts = List<String>.filled(_imagePaths.length, '');
     _ocrPageErrors = List<String?>.filled(_imagePaths.length, null);
     notifyListeners();
@@ -917,7 +918,12 @@ class ScanController extends ChangeNotifier {
                 : OcrPageStatus.failed;
             notifyListeners();
           },
-        );
+          );
+        } catch (_) {
+          // Fallback is best-effort. Never discard valid OCR text already
+          // obtained from the primary/preprocessed image when the original
+          // image cannot be processed.
+        }
       }
 
       if (runId != _ocrRunId) return;
