@@ -80,6 +80,29 @@ void main() {
       expect(updated.createdAt, original.createdAt);
     });
 
+    test('rename preserves pages and invalidates cached PDF', () {
+      final original = ScannedDocument(
+        id: 'doc-005',
+        title: 'Old title',
+        imagePaths: const ['/docs/a.jpg', '/docs/b.jpg'],
+        pageTexts: const ['Page A', 'Page B'],
+        createdAt: DateTime.utc(2026),
+        pdfPath: '/docs/old-title.pdf',
+        thumbnailPath: '/docs/thumb.jpg',
+      );
+
+      final renamed = original.copyWith(
+        title: 'New title',
+        clearPdfPath: true,
+      );
+
+      expect(renamed.title, 'New title');
+      expect(renamed.imagePaths, original.imagePaths);
+      expect(renamed.pageTexts, original.pageTexts);
+      expect(renamed.thumbnailPath, original.thumbnailPath);
+      expect(renamed.pdfPath, isNull);
+    });
+
     test('can clear cached PDF and thumbnail paths', () {
       final original = ScannedDocument(
         id: 'doc-004',
