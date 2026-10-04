@@ -165,8 +165,13 @@ class PdfService {
     // A text-only PDF remains valid when the caller explicitly requested
     // a non-empty OCR text layer. Otherwise, don't save an empty PDF when
     // every source image disappeared before export.
-    final hasTextLayer = includeTextLayer && (extractedText?.isNotEmpty ?? false);
-    if (imagePagesAdded == 0 && !hasTextLayer) {
+    final hasPerPageTextLayer = includeTextLayer &&
+        pageTexts != null &&
+        pageTexts.any((text) => text.trim().isNotEmpty);
+    final hasTextLayer = includeTextLayer &&
+        (extractedText?.isNotEmpty ?? false) &&
+        !hasPerPageTextLayer;
+    if (imagePagesAdded == 0 && !hasTextLayer && !hasPerPageTextLayer) {
       throw Exception('Tidak ada file gambar yang tersedia untuk dibuat PDF');
     }
 
