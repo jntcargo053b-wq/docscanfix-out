@@ -257,6 +257,7 @@ class BulkShareService {
         final chunkPaths = await _pdfService.generatePdfChunked(
           title: doc.title,
           imagePaths: doc.imagePaths,
+          pageTexts: doc.pageTexts,
           temporaryOutput: true,
           onChunkGenerated: generatedTempFiles.add,
         );
@@ -278,7 +279,9 @@ class BulkShareService {
         pdfPath = await _pdfService.generatePdf(
           title: doc.title,
           imagePaths: doc.imagePaths,
+          pageTexts: doc.pageTexts,
           extractedText: doc.extractedText,
+          includeTextLayer: doc.pageTexts.length == doc.imagePaths.length,
         );
         final updated = doc.copyWith(pdfPath: pdfPath);
         // FIX (P1 — updateDocument() critical masih deferred): pdfPath ini
