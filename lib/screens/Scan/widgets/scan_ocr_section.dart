@@ -23,7 +23,6 @@ class ScanOcrSection extends StatelessWidget {
   final String? extractedText;
   final VoidCallback onRerun;
   final List<OcrPageStatus> pageStatuses;
-  final List<OcrPageStatus> pageStatuses;
   final double progress;
   final ValueChanged<int> onRetryPage;
 
@@ -55,7 +54,10 @@ class _OcrLoadingRow extends StatelessWidget {
           Expanded(child: Text('Mengenali $completed/${pageStatuses.length} halaman • ${(progress * 100).round()}%', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500))),
         ]),
         const Gap(8),
-        ClipRRect(borderRadius: BorderRadius.all(Radius.circular(4)), child: LinearProgressIndicator(value: progress, minHeight: 5)),
+        ClipRRect(
+          borderRadius: const BorderRadius.all(Radius.circular(4)),
+          child: LinearProgressIndicator(value: progress, minHeight: 5),
+        ),
       ]),
     );
   }
