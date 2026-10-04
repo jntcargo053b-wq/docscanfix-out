@@ -6,6 +6,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+  });
+
   group('PdfService.generatePdfChunked', () {
     test('rejects a non-positive pagesPerChunk before filesystem work', () async {
       await expectLater(
@@ -17,7 +21,6 @@ void main() {
         throwsArgumentError,
       );
     });
-
 
     test('cleans earlier chunks when a later chunk fails', () async {
       final tempDir = await getTemporaryDirectory();
