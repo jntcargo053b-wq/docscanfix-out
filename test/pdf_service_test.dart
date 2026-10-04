@@ -32,21 +32,11 @@ void main() {
       ).create();
 
       final imagePaths = <String>[];
-      final uniqueId = DateTime.now().microsecondsSinceEpoch;
-      final testTitle = 'Partial failure cleanup $uniqueId';
-
-      // Snapshot the directory so the assertion is based on files actually
-      // created by this invocation, not on the production filename sanitizer.
-      final beforePaths = <String>{
-        ...await pdfDir
-            .list()
-            .whereType<File>()
-            .map((file) => file.path)
-            .toList(),
-      };
+      final generatedChunks = <String>[];
 
       try {
         final bytes = img.encodeJpg(img.Image(width: 2, height: 2));
+
         for (int i = 0; i < 31; i++) {
           final path = '${workDir.path}/page_${i + 1}.jpg';
           await File(path).writeAsBytes(bytes);
@@ -55,10 +45,11 @@ void main() {
 
         await expectLater(
           PdfService().generatePdfChunked(
-            title: testTitle,
+            title: 'Partial failure cleanup',
             imagePaths: imagePaths,
             pagesPerChunk: 30,
             temporaryOutput: true,
+            onChunkGenerated: generatedChunks.add,
             beforeChunkWrite: (chunkIndex) async {
               if (chunkIndex == 1) {
                 throw Exception('Injected second-chunk failure');
@@ -68,35 +59,32 @@ void main() {
           throwsA(isA<Exception>()),
         );
 
-        final afterPaths = <String>{
-          ...await pdfDir
-              .list()
-              .whereType<File>()
-              .map((file) => file.path)
-              .toList(),
-        };
-        final createdPaths = afterPaths.difference(beforePaths);
+        // Chunk pertama harus sudah berhasil dibuat.
+        expect(generatedChunks, hasLength(1));
 
-        expect(createdPaths, hasLength(1));
-        expect(createdPaths.single, contains('_part1of2_'));
-        expect(createdPaths.single, endsWith('.pdf'));
+        final firstChunk = File(generatedChunks.single);
 
-        final createdPartialFiles = createdPaths
-            .where((path) => path.endsWith('.part'))
+        expect(firstChunk.existsSync(), isTrue);
+        expect(firstChunk.path, contains('_part1of2_'));
+        expect(firstChunk.path, endsWith('.pdf'));
+
+        // Tidak boleh ada partial file untuk chunk kedua.
+        final partialFiles = await pdfDir
+            .list()
+            .whereType<File>()
+            .where((file) => file.path.endsWith('.part'))
             .toList();
-        expect(createdPartialFiles, isEmpty);
+
+        expect(partialFiles, isEmpty);
       } finally {
         await workDir.delete(recursive: true);
-        final afterCleanupPaths = <String>{
-          ...await pdfDir
-              .list()
-              .whereType<File>()
-              .map((file) => file.path)
-              .toList(),
-        };
-        for (final path in afterCleanupPaths.difference(beforePaths)) {
+
+        for (final path in generatedChunks) {
           try {
-            await File(path).delete();
+            final file = File(path);
+            if (await file.exists()) {
+              await file.delete();
+            }
           } catch (_) {}
         }
       }
