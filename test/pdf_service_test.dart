@@ -34,17 +34,16 @@ void main() {
       final imagePaths = <String>[];
       final uniqueId = DateTime.now().microsecondsSinceEpoch;
       final testTitle = 'Partial failure cleanup $uniqueId';
-      final safeTitle = testTitle.replaceAll(RegExp(r'[^\w\s]'), '_');
 
-      // Remove leftovers from an interrupted previous CI run before starting.
-      final staleBefore = pdfDir.list().where(
-            (entity) => entity.path.contains(safeTitle),
-          );
-      await for (final entity in staleBefore) {
-        try {
-          await entity.delete(recursive: true);
-        } catch (_) {}
-      }
+      // Snapshot the directory so the assertion is based on files actually
+      // created by this invocation, not on the production filename sanitizer.
+      final beforePaths = <String>{
+        ...await pdfDir
+            .list()
+            .whereType<File>()
+            .map((file) => file.path)
+            .toList(),
+      };
 
       try {
         final bytes = img.encodeJpg(img.Image(width: 2, height: 2));
@@ -69,26 +68,26 @@ void main() {
           throwsA(isA<Exception>()),
         );
 
-        final leftovers = await pdfDir
-            .list()
-            .where(
-              (entity) => entity.path.contains(safeTitle),
-            )
-            .toList();
-        expect(leftovers, hasLength(1));
-        expect(leftovers.single.path, contains('_part1of2_'));
+        final afterPaths = <String>{
+          ...await pdfDir
+              .list()
+              .whereType<File>()
+              .map((file) => file.path)
+              .toList(),
+        };
+        final createdPaths = afterPaths.difference(beforePaths);
 
-        final partialFiles = await pdfDir
-            .list()
-            .where((entity) => entity.path.contains(safeTitle) && entity.path.endsWith('.part'))
+        expect(createdPaths, hasLength(1));
+        expect(createdPaths.single, contains('_part1of2_'));
+        expect(createdPaths.single, endsWith('.pdf'));
+
+        final partialFiles = afterPaths
+            .where((path) => path.endsWith('.part'))
             .toList();
         expect(partialFiles, isEmpty);
       } finally {
         await workDir.delete(recursive: true);
-        final stale = pdfDir.list().where(
-              (entity) =>
-                  entity.path.contains(safeTitle),
-            );
+        final stale = pdfDir.list();
         await for (final entity in stale) {
           try {
             await entity.delete(recursive: true);
