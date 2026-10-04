@@ -1,25 +1,30 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
 
 import '../../../theme/app_theme.dart';
 
-/// Shows either an OCR loading indicator or the extracted text snippet.
-/// Renders nothing when neither state is active.
+/// Shows OCR progress or a compact result with actions.
+/// OCR processing itself remains owned by [ScanController]/[OcrService].
 class ScanOcrSection extends StatelessWidget {
   const ScanOcrSection({
     super.key,
     required this.isRunning,
     required this.extractedText,
+    required this.onRerun,
   });
 
   final bool isRunning;
   final String? extractedText;
+  final VoidCallback onRerun;
 
   @override
   Widget build(BuildContext context) {
     if (isRunning) return const _OcrLoadingRow();
-    if (extractedText != null) return _OcrResultCard(text: extractedText!);
+    if (extractedText != null && extractedText!.trim().isNotEmpty) {
+      return _OcrResultCard(text: extractedText!, onRerun: onRerun);
+    }
     return const SizedBox.shrink();
   }
 }
@@ -62,9 +67,54 @@ class _OcrLoadingRow extends StatelessWidget {
 }
 
 class _OcrResultCard extends StatelessWidget {
-  const _OcrResultCard({required this.text});
+  const _OcrResultCard({
+    required this.text,
+    required this.onRerun,
+  });
 
   final String text;
+  final VoidCallback onRerun;
+
+  Future<void> _copyText(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Teks OCR berhasil disalin.')),
+    );
+  }
+
+  Future<void> _showFullText(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Hasil OCR'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                text,
+                style: Theme.of(dialogContext).textTheme.bodyMedium?.copyWith(
+                      height: 1.5,
+                    ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () => _copyText(dialogContext),
+              icon: const Icon(Icons.copy_outlined),
+              label: const Text('Salin'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Tutup'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,11 +137,19 @@ class _OcrResultCard extends StatelessWidget {
                 color: AppTheme.primary,
               ),
               const Gap(8),
-              Text(
-                'Hasil OCR',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+              Expanded(
+                child: Text(
+                  'Hasil OCR',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'OCR ulang',
+                onPressed: onRerun,
+                icon: const Icon(Icons.refresh, size: 20),
+                visualDensity: VisualDensity.compact,
               ),
             ],
           ),
@@ -104,6 +162,23 @@ class _OcrResultCard extends StatelessWidget {
                   color: AppTheme.textSecondary,
                   height: 1.45,
                 ),
+          ),
+          const Gap(8),
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
+            children: [
+              TextButton.icon(
+                onPressed: () => _showFullText(context),
+                icon: const Icon(Icons.open_in_full, size: 17),
+                label: const Text('Lihat Semua'),
+              ),
+              TextButton.icon(
+                onPressed: () => _copyText(context),
+                icon: const Icon(Icons.copy_outlined, size: 17),
+                label: const Text('Salin'),
+              ),
+            ],
           ),
         ],
       ),
