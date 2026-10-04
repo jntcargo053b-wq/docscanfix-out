@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
 
 import '../../../theme/app_theme.dart';
+import '../scan_controller.dart';
 
 /// Shows OCR progress or a compact result with actions.
 /// OCR processing itself remains owned by [ScanController]/[OcrService].
@@ -13,15 +14,23 @@ class ScanOcrSection extends StatelessWidget {
     required this.isRunning,
     required this.extractedText,
     required this.onRerun,
+    required this.pageStatuses,
+    required this.progress,
+    required this.onRetryPage,
   });
 
   final bool isRunning;
   final String? extractedText;
   final VoidCallback onRerun;
+  final List<OcrPageStatus> pageStatuses;
+  final ValueChanged<int> onRetryPage;
+  final List<OcrPageStatus> pageStatuses;
+  final double progress;
+  final ValueChanged<int> onRetryPage;
 
   @override
   Widget build(BuildContext context) {
-    if (isRunning) return const _OcrLoadingRow();
+    if (isRunning) return _OcrLoadingRow(progress: progress, pageStatuses: pageStatuses);
     if (extractedText != null && extractedText!.trim().isNotEmpty) {
       return _OcrResultCard(text: extractedText!, onRerun: onRerun);
     }
@@ -30,38 +39,25 @@ class ScanOcrSection extends StatelessWidget {
 }
 
 class _OcrLoadingRow extends StatelessWidget {
-  const _OcrLoadingRow();
+  const _OcrLoadingRow({required this.progress, required this.pageStatuses});
+  final double progress;
+  final List<OcrPageStatus> pageStatuses;
 
   @override
   Widget build(BuildContext context) {
+    final completed = pageStatuses.where((s) => s == OcrPageStatus.success || s == OcrPageStatus.failed).length;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.surfaceLight),
-      ),
-      child: const Row(
-        children: [
-          SizedBox(
-            width: 15,
-            height: 15,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: AppTheme.primary,
-            ),
-          ),
-          Gap(10),
-          Text(
-            'Mengenali teks…',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppTheme.textSecondary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.surfaceLight)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primary)),
+          const Gap(10),
+          Expanded(child: Text('Mengenali $completed/${pageStatuses.length} halaman • ${(progress * 100).round()}%', style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontWeight: FontWeight.w500))),
+        ]),
+        const Gap(8),
+        ClipRRect(borderRadius: BorderRadius.all(Radius.circular(4)), child: LinearProgressIndicator(value: progress, minHeight: 5)),
+      ]),
     );
   }
 }
@@ -70,6 +66,8 @@ class _OcrResultCard extends StatelessWidget {
   const _OcrResultCard({
     required this.text,
     required this.onRerun,
+    required this.pageStatuses,
+    required this.onRetryPage,
   });
 
   final String text;
@@ -163,7 +161,22 @@ class _OcrResultCard extends StatelessWidget {
                   height: 1.45,
                 ),
           ),
-          const Gap(8),
+          if (pageStatuses.isNotEmpty) ...[
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                for (var i = 0; i < pageStatuses.length; i++)
+                  ActionChip(
+                    label: Text('Hal ${i + 1} • ${pageStatuses[i] == OcrPageStatus.failed ? 'ulang' : pageStatuses[i] == OcrPageStatus.success ? 'OK' : '…'}', style: const TextStyle(fontSize: 10)),
+                    avatar: Icon(pageStatuses[i] == OcrPageStatus.failed ? Icons.refresh : pageStatuses[i] == OcrPageStatus.success ? Icons.check : Icons.hourglass_top, size: 14),
+                    onPressed: pageStatuses[i] == OcrPageStatus.failed ? () => onRetryPage(i) : null,
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+            const Gap(4),
+          ],
           Wrap(
             spacing: 4,
             runSpacing: 4,
