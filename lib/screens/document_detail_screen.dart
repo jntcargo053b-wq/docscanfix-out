@@ -276,7 +276,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     );
   }
 
-  Future<void> _rerunOcrPage(int index) async {
+  Future<void> _rerunOcrPage(int index, {VoidCallback? refreshDialog}) async {
     if (_ocrPageRetries.contains(index) ||
         index < 0 ||
         index >= _doc.imagePaths.length ||
@@ -289,6 +289,9 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       final prepared =
           await _enhanceService.prepareForOcr(_doc.imagePaths[index]);
       final text = await OcrService().extractTextFromImage(prepared);
+      try {
+        await File(prepared).delete();
+      } catch (_) {}
       final updatedPages = List<String>.from(_pageOcrTexts);
       updatedPages[index] = text;
       final aggregate = <String>[];
@@ -296,7 +299,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         final pageText = updatedPages[pageIndex].trim();
         if (pageText.isNotEmpty) {
           aggregate.add(
-            '--- Halaman ' + pageIndex.toString() + ' ---\n$pageText',
+            '--- Halaman ' + (pageIndex + 1).toString() + ' ---\n$pageText',
           );
         }
       }
@@ -310,6 +313,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         _doc = updated;
         _pageOcrTexts = updatedPages;
       });
+      refreshDialog?.call();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -321,7 +325,10 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _ocrPageRetries.remove(index));
+      if (mounted) {
+        setState(() => _ocrPageRetries.remove(index));
+        refreshDialog?.call();
+      }
     }
   }
 
@@ -349,8 +356,9 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
 
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('OCR per halaman'),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('OCR per halaman'),
         content: SizedBox(
           width: double.maxFinite,
           child: ListView.separated(
@@ -376,7 +384,12 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
                 ),
                 trailing: IconButton(
                   tooltip: 'OCR ulang halaman ini',
-                  onPressed: retrying ? null : () => _rerunOcrPage(index),
+                  onPressed: retrying
+                      ? null
+                      : () => _rerunOcrPage(
+                            index,
+                            refreshDialog: () => setDialogState(() {}),
+                          ),
                   icon: retrying
                       ? const SizedBox(
                           width: 20,
