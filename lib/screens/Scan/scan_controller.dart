@@ -934,16 +934,17 @@ class ScanController extends ChangeNotifier {
         [prepared],
         onPageCompleted: (_, result) => pageResult = result,
       );
-      pageResult ??= const OcrPageResult(
-        text: '',
-        success: false,
-        errorMessage: 'OCR gagal diproses.',
-      );
-      _ocrPageTexts[index] = pageResult.text;
-      _ocrPageStatuses[index] = pageResult.success
+      final result = pageResult ??
+          const OcrPageResult(
+            text: '',
+            success: false,
+            errorMessage: 'OCR gagal diproses.',
+          );
+      _ocrPageTexts[index] = result.text;
+      _ocrPageStatuses[index] = result.success
           ? OcrPageStatus.success
           : OcrPageStatus.failed;
-      _ocrPageErrors[index] = pageResult.errorMessage;
+      _ocrPageErrors[index] = result.errorMessage;
       _rebuildExtractedText();
     } catch (_) {
       _ocrPageStatuses[index] = OcrPageStatus.failed;
