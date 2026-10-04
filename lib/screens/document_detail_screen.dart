@@ -557,6 +557,11 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         const SnackBar(content: Text('Urutan halaman berhasil diperbarui.')),
       );
     } catch (e) {
+      try {
+        final generatedThumbnail =
+            await _enhanceService.generateThumbnail(workingPaths.first);
+        await File(generatedThumbnail).delete();
+      } catch (_) {}
       if (mounted) {
         _showError('Gagal memperbarui halaman: $e');
       }
