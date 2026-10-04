@@ -923,6 +923,9 @@ class ScanController extends ChangeNotifier {
   }
 
   Future<void> _rerunOcrPageBody(int index, String prepared) async {
+    // Give the retry its own generation token so a page removal/edit or a
+    // newer full OCR run can invalidate this async result safely.
+    final runId = ++_ocrRunId;
     _isOcrRunning = true;
     _ocrPageStatuses[index] = OcrPageStatus.running;
     _ocrPageErrors[index] = null;
@@ -934,6 +937,12 @@ class ScanController extends ChangeNotifier {
         [prepared],
         onPageCompleted: (_, result) => pageResult = result,
       );
+      if (_disposed || runId != _ocrRunId ||
+          index >= _ocrPageStatuses.length ||
+          index >= _ocrPageTexts.length ||
+          index >= _ocrPageErrors.length) {
+        return;
+      }
       final result = pageResult ??
           const OcrPageResult(
             text: '',
@@ -947,11 +956,17 @@ class ScanController extends ChangeNotifier {
       _ocrPageErrors[index] = result.errorMessage;
       _rebuildExtractedText();
     } catch (_) {
+      if (_disposed || runId != _ocrRunId ||
+          index >= _ocrPageStatuses.length) {
+        return;
+      }
       _ocrPageStatuses[index] = OcrPageStatus.failed;
       _ocrPageErrors[index] = 'OCR gagal diproses.';
     } finally {
-      _isOcrRunning = false;
-      notifyListeners();
+      if (runId == _ocrRunId) {
+        _isOcrRunning = false;
+        notifyListeners();
+      }
     }
   }
 
