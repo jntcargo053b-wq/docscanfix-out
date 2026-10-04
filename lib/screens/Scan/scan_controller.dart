@@ -855,13 +855,13 @@ class ScanController extends ChangeNotifier {
     final originalPaths = List<String>.from(_imagePaths);
     _isOcrRunning = true;
     _ocrPageStatuses = List<OcrPageStatus>.filled(originalPaths.length, OcrPageStatus.running);
-    _ocrPageTexts = List<String>.filled(_imagePaths.length, '');
-    _ocrPageErrors = List<String?>.filled(_imagePaths.length, null);
+    _ocrPageTexts = List<String>.filled(originalPaths.length, '');
+    _ocrPageErrors = List<String?>.filled(originalPaths.length, null);
     notifyListeners();
 
     try {
       final preparedPaths = <String>[];
-      for (final originalPath in _imagePaths) {
+      for (final originalPath in originalPaths) {
         if (_preparedForOcrCache.containsKey(originalPath)) {
           preparedPaths.add(_preparedForOcrCache[originalPath]!);
         } else {
@@ -894,30 +894,33 @@ class ScanController extends ChangeNotifier {
       // diproses ulang sehingga foto normal tidak membayar biaya tambahan.
       final fallbackPaths = <String>[];
       final fallbackIndexes = <int>[];
-      for (var i = 0; i < _ocrPageTexts.length; i++) {
+      for (var i = 0;
+          i < _ocrPageTexts.length && i < originalPaths.length;
+          i++) {
         if (_ocrPageTexts[i].trim().isEmpty) {
-          fallbackPaths.add(_imagePaths[i]);
+          fallbackPaths.add(originalPaths[i]);
           fallbackIndexes.add(i);
         }
       }
 
       if (fallbackPaths.isNotEmpty) {
-        await _ocrService.extractTextFromImages(
-          fallbackPaths,
-          onPageCompleted: (fallbackIndex, result) {
-            if (runId != _ocrRunId ||
-                fallbackIndex >= fallbackIndexes.length) {
-              return;
-            }
-            final pageIndex = fallbackIndexes[fallbackIndex];
-            if (pageIndex >= _ocrPageStatuses.length) return;
-            _ocrPageTexts[pageIndex] = result.text;
-            _ocrPageErrors[pageIndex] = result.errorMessage;
-            _ocrPageStatuses[pageIndex] = result.success
-                ? OcrPageStatus.success
-                : OcrPageStatus.failed;
-            notifyListeners();
-          },
+        try {
+          await _ocrService.extractTextFromImages(
+            fallbackPaths,
+            onPageCompleted: (fallbackIndex, result) {
+              if (runId != _ocrRunId ||
+                  fallbackIndex >= fallbackIndexes.length) {
+                return;
+              }
+              final pageIndex = fallbackIndexes[fallbackIndex];
+              if (pageIndex >= _ocrPageStatuses.length) return;
+              _ocrPageTexts[pageIndex] = result.text;
+              _ocrPageErrors[pageIndex] = result.errorMessage;
+              _ocrPageStatuses[pageIndex] = result.success
+                  ? OcrPageStatus.success
+                  : OcrPageStatus.failed;
+              notifyListeners();
+            },
           );
         } catch (_) {
           // Fallback is best-effort. Never discard valid OCR text already
