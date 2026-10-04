@@ -23,7 +23,6 @@ class ScanOcrSection extends StatelessWidget {
   final String? extractedText;
   final VoidCallback onRerun;
   final List<OcrPageStatus> pageStatuses;
-  final ValueChanged<int> onRetryPage;
   final List<OcrPageStatus> pageStatuses;
   final double progress;
   final ValueChanged<int> onRetryPage;
@@ -31,8 +30,8 @@ class ScanOcrSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isRunning) return _OcrLoadingRow(progress: progress, pageStatuses: pageStatuses);
-    if (extractedText != null && extractedText!.trim().isNotEmpty) {
-      return _OcrResultCard(text: extractedText!, onRerun: onRerun);
+    if (extractedText != null && extractedText!.trim().isNotEmpty || pageStatuses.any((s) => s == OcrPageStatus.failed)) {
+      return _OcrResultCard(text: extractedText ?? '', onRerun: onRerun, pageStatuses: pageStatuses, onRetryPage: onRetryPage);
     }
     return const SizedBox.shrink();
   }
@@ -72,6 +71,8 @@ class _OcrResultCard extends StatelessWidget {
 
   final String text;
   final VoidCallback onRerun;
+  final List<OcrPageStatus> pageStatuses;
+  final ValueChanged<int> onRetryPage;
 
   Future<void> _copyText(BuildContext context) async {
     await Clipboard.setData(ClipboardData(text: text));
