@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/scanned_document.dart';
 import '../services/document_storage_service.dart';
@@ -220,6 +221,55 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     );
   }
 
+  Future<void> _copyOcrText() async {
+    final text = _doc.extractedText;
+    if (text == null || text.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Teks OCR berhasil disalin.')),
+    );
+  }
+
+  Future<void> _showOcrText() async {
+    final text = _doc.extractedText;
+    if (text == null || text.trim().isEmpty) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Hasil OCR'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              text,
+              style: Theme.of(dialogContext).textTheme.bodyMedium?.copyWith(
+                    height: 1.5,
+                  ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (!dialogContext.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Teks OCR berhasil disalin.')),
+              );
+            },
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('Salin'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Build ────────────────────────────────────────────────────────
 
   @override
@@ -269,7 +319,15 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            if (_doc.extractedText != null &&
+                _doc.extractedText!.trim().isNotEmpty) ...[
+              _OcrPreviewCard(
+                text: _doc.extractedText!,
+                onViewAll: _showOcrText,
+                onCopy: _copyOcrText,
+              ),
+              const SizedBox(height: 12),
+            ],
             Expanded(
               child: ImageGrid(
                 imagePaths: _doc.imagePaths,
@@ -294,6 +352,72 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   }
 }
 
+
+class _OcrPreviewCard extends StatelessWidget {
+  const _OcrPreviewCard({
+    required this.text,
+    required this.onViewAll,
+    required this.onCopy,
+  });
+
+  final String text;
+  final VoidCallback onViewAll;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.surfaceLight),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.text_fields, size: 18, color: AppTheme.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Teks OCR',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Salin',
+                onPressed: onCopy,
+                icon: const Icon(Icons.copy_outlined, size: 19),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+          Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppTheme.textSecondary,
+                  height: 1.4,
+                ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onViewAll,
+              child: const Text('Lihat Semua'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Full-screen page viewer: keeps the complete scanned page visible (no crop),
 /// supports pinch-to-zoom/pan, and lets users move between document pages.
