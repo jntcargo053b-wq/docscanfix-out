@@ -431,6 +431,12 @@ class ScanController extends ChangeNotifier {
         id: id,
         title: title,
         imagePaths: saved.imagePaths,
+        // Persist page-level OCR alongside the aggregate text so saved
+        // documents can later display or rerun OCR for one page.
+        pageTexts: List<String>.generate(
+          saved.imagePaths.length,
+          (index) => index < _ocrPageTexts.length ? _ocrPageTexts[index] : '',
+        ),
         extractedText: _extractedText,
         createdAt: DateTime.now(),
         pdfPath: null,
