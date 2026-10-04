@@ -258,6 +258,7 @@ class BulkShareService {
           title: doc.title,
           imagePaths: doc.imagePaths,
           temporaryOutput: true,
+          onChunkGenerated: generatedTempFiles.add,
         );
         for (int c = 0; c < chunkPaths.length; c++) {
           generatedTempFiles.add(chunkPaths[c]);
