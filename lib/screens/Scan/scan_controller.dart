@@ -550,7 +550,7 @@ class ScanController extends ChangeNotifier {
     try {
       // Check if we have cached PDF-prepared images we can reuse
       final preparedPaths = <String>[];
-      for (final originalPath in originalPaths) {
+      for (final originalPath in _imagePaths) {
         // The screen may be closed while image preparation is running.
         // Do not keep processing or register new temp files after dispose()
         // has already performed its session cleanup.
