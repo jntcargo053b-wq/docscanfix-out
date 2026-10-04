@@ -872,18 +872,56 @@ class ScanController extends ChangeNotifier {
         }
       }
 
-      final text = await _ocrService.extractTextFromImages(
+      await _ocrService.extractTextFromImages(
         preparedPaths,
         onPageCompleted: (index, result) {
           if (runId != _ocrRunId || index >= _ocrPageStatuses.length) return;
           _ocrPageTexts[index] = result.text;
           _ocrPageErrors[index] = result.errorMessage;
-          _ocrPageStatuses[index] = result.success ? OcrPageStatus.success : OcrPageStatus.failed;
+          _ocrPageStatuses[index] = result.success
+              ? OcrPageStatus.success
+              : OcrPageStatus.failed;
           notifyListeners();
         },
       );
       if (runId != _ocrRunId) return;
-      _extractedText = text;
+
+      // Fallback konservatif: preprocessing dipakai sebagai jalur utama,
+      // tetapi jika satu halaman menghasilkan teks kosong, coba foto sumber
+      // asli. Ini menangani karakter kecil/halus yang bisa hilang saat
+      // resize/grayscale/JPEG preprocessing. Hanya halaman kosong yang
+      // diproses ulang sehingga foto normal tidak membayar biaya tambahan.
+      final fallbackPaths = <String>[];
+      final fallbackIndexes = <int>[];
+      for (var i = 0; i < _ocrPageTexts.length; i++) {
+        if (_ocrPageTexts[i].trim().isEmpty) {
+          fallbackPaths.add(_imagePaths[i]);
+          fallbackIndexes.add(i);
+        }
+      }
+
+      if (fallbackPaths.isNotEmpty) {
+        await _ocrService.extractTextFromImages(
+          fallbackPaths,
+          onPageCompleted: (fallbackIndex, result) {
+            if (runId != _ocrRunId ||
+                fallbackIndex >= fallbackIndexes.length) {
+              return;
+            }
+            final pageIndex = fallbackIndexes[fallbackIndex];
+            if (pageIndex >= _ocrPageStatuses.length) return;
+            _ocrPageTexts[pageIndex] = result.text;
+            _ocrPageErrors[pageIndex] = result.errorMessage;
+            _ocrPageStatuses[pageIndex] = result.success
+                ? OcrPageStatus.success
+                : OcrPageStatus.failed;
+            notifyListeners();
+          },
+        );
+      }
+
+      if (runId != _ocrRunId) return;
+      _rebuildExtractedText();
       for (var i = 0; i < _ocrPageStatuses.length; i++) {
         if (_ocrPageStatuses[i] == OcrPageStatus.running) {
           _ocrPageStatuses[i] = OcrPageStatus.failed;
