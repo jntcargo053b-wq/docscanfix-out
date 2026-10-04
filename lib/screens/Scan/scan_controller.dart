@@ -592,6 +592,8 @@ class ScanController extends ChangeNotifier {
       final pdfPath = await _pdfService.generatePdf(
         title: title,
         imagePaths: preparedPaths,
+        pageTexts: _ocrPageTexts,
+        includeTextLayer: _ocrPageTexts.length == preparedPaths.length,
         skipDownsize: true,
         temporaryOutput: true,
       );
