@@ -24,11 +24,17 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   final _enhanceService = ImageEnhanceService();
   bool _isSharing = false;
   bool _isExportingPdf = false;
+  final Set<int> _ocrPageRetries = <int>{};
+  late List<String> _pageOcrTexts;
 
   @override
   void initState() {
     super.initState();
     _doc = widget.document;
+    _pageOcrTexts = List<String>.generate(
+      _doc.imagePaths.length,
+      (index) => index < _doc.pageTexts.length ? _doc.pageTexts[index] : '',
+    );
   }
 
   // ── Share as Images ──────────────────────────────────────────────
@@ -270,6 +276,128 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     );
   }
 
+  Future<void> _rerunOcrPage(int index) async {
+    if (_ocrPageRetries.contains(index) ||
+        index < 0 ||
+        index >= _doc.imagePaths.length ||
+        _doc.pageTexts.length != _doc.imagePaths.length) {
+      return;
+    }
+
+    setState(() => _ocrPageRetries.add(index));
+    try {
+      final prepared =
+          await _enhanceService.prepareForOcr(_doc.imagePaths[index]);
+      final text = await OcrService().extractTextFromImage(prepared);
+      final updatedPages = List<String>.from(_pageOcrTexts);
+      updatedPages[index] = text;
+      final aggregate = <String>[];
+      for (var pageIndex = 0; pageIndex < updatedPages.length; pageIndex++) {
+        final pageText = updatedPages[pageIndex].trim();
+        if (pageText.isNotEmpty) {
+          aggregate.add(
+            '--- Halaman ' + pageIndex.toString() + ' ---\n$pageText',
+          );
+        }
+      }
+      final updated = _doc.copyWith(
+        pageTexts: updatedPages,
+        extractedText: aggregate.isEmpty ? null : aggregate.join('\n\n'),
+      );
+      await _storageService.updateDocument(updated, immediate: true);
+      if (!mounted) return;
+      setState(() {
+        _doc = updated;
+        _pageOcrTexts = updatedPages;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'OCR halaman ' + (index + 1).toString() + ' gagal: $e',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _ocrPageRetries.remove(index));
+    }
+  }
+
+  Future<void> _showPageOcr() async {
+    final hasPageData = _doc.pageTexts.length == _doc.imagePaths.length;
+    if (!hasPageData) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('OCR per halaman'),
+          content: const Text(
+            'Dokumen ini dibuat sebelum OCR per halaman disimpan. '
+            'Jalankan OCR ulang dari layar Scan untuk mengaktifkan hasil OCR per halaman.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Tutup'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('OCR per halaman'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: _doc.imagePaths.length,
+            separatorBuilder: (_, __) => const Divider(height: 16),
+            itemBuilder: (context, index) {
+              final text = _pageOcrTexts[index].trim();
+              final retrying = _ocrPageRetries.contains(index);
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  radius: 16,
+                  child: Text('${index + 1}'),
+                ),
+                title: Text(
+                  text.isEmpty ? 'Tidak ada teks terdeteksi' : text,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  text.isEmpty ? 'Belum ada hasil OCR' : 'OCR tersedia',
+                ),
+                trailing: IconButton(
+                  tooltip: 'OCR ulang halaman ini',
+                  onPressed: retrying ? null : () => _rerunOcrPage(index),
+                  icon: retrying
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
+  }
   // ── Build ────────────────────────────────────────────────────────
 
   @override
@@ -325,6 +453,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
                 text: _doc.extractedText!,
                 onViewAll: _showOcrText,
                 onCopy: _copyOcrText,
+                onPageOcr: _showPageOcr,
               ),
               const SizedBox(height: 12),
             ],
@@ -358,11 +487,13 @@ class _OcrPreviewCard extends StatelessWidget {
     required this.text,
     required this.onViewAll,
     required this.onCopy,
+    required this.onPageOcr,
   });
 
   final String text;
   final VoidCallback onViewAll;
   final VoidCallback onCopy;
+  final VoidCallback onPageOcr;
 
   @override
   Widget build(BuildContext context) {
@@ -393,6 +524,12 @@ class _OcrPreviewCard extends StatelessWidget {
                 tooltip: 'Salin',
                 onPressed: onCopy,
                 icon: const Icon(Icons.copy_outlined, size: 19),
+                visualDensity: VisualDensity.compact,
+              ),
+              IconButton(
+                tooltip: 'OCR per halaman',
+                onPressed: onPageOcr,
+                icon: const Icon(Icons.view_list_outlined, size: 19),
                 visualDensity: VisualDensity.compact,
               ),
             ],
