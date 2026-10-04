@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:docscan/services/pdf_service.dart';
 import 'package:image/image.dart' as img;
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path_provider/path_provider.dart';
 
 void main() {
   setUpAll(() {
@@ -23,7 +23,20 @@ void main() {
     });
 
     test('preserves earlier chunks when a later chunk fails', () async {
-      final tempDir = await getTemporaryDirectory();
+      final tempDir = await Directory.systemTemp.createTemp('docscan-pdf-test-root-');
+      final pathProviderChannel =
+          const MethodChannel('plugins.flutter.io/path_provider');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        pathProviderChannel,
+        (call) async {
+          if (call.method == 'getTemporaryDirectory') {
+            return tempDir.path;
+          }
+          return null;
+        },
+      );
+
       final pdfDir = Directory('${tempDir.path}/docscan_pdf_temp');
       await pdfDir.create(recursive: true);
 
@@ -77,7 +90,10 @@ void main() {
 
         expect(partialFiles, isEmpty);
       } finally {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(pathProviderChannel, null);
         await workDir.delete(recursive: true);
+        await tempDir.delete(recursive: true);
 
         for (final path in generatedChunks) {
           try {
