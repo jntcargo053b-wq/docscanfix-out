@@ -408,6 +408,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
             child: const Text('Tutup'),
           ),
         ],
+        ),
       ),
     );
   }
