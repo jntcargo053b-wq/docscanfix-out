@@ -570,6 +570,85 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     }
   }
 
+  Future<void> _renameDocument() async {
+    if (_isSharing || _isExportingPdf) return;
+
+    final controller = TextEditingController(text: _doc.title);
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Ganti nama dokumen'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 120,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            labelText: 'Nama dokumen',
+            hintText: 'Masukkan nama dokumen',
+          ),
+          onSubmitted: (value) {
+            final title = value.trim();
+            if (title.isNotEmpty) {
+              Navigator.of(dialogContext).pop(title);
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final title = controller.text.trim();
+              if (title.isNotEmpty) {
+                Navigator.of(dialogContext).pop(title);
+              }
+            },
+            child: const Text('Simpan'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (newTitle == null || !mounted || newTitle == _doc.title) return;
+
+    setState(() => _isExportingPdf = true);
+    try {
+      final oldPdf = _doc.pdfPath;
+      final updated = _doc.copyWith(
+        title: newTitle,
+        clearPdfPath: true,
+      );
+
+      // Commit metadata first so a successful rename cannot leave the
+      // document pointing at a PDF whose embedded title is stale.
+      await _storageService.updateDocument(updated, immediate: true);
+
+      // The cached PDF is now invalid. Cleanup is best-effort; metadata no
+      // longer references it even if the filesystem delete fails.
+      if (oldPdf != null && oldPdf.isNotEmpty) {
+        try {
+          await File(oldPdf).delete();
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+      setState(() => _doc = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nama dokumen berhasil diperbarui.')),
+      );
+    } catch (e) {
+      if (mounted) {
+        _showError('Gagal mengganti nama dokumen: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isExportingPdf = false);
+    }
+  }
+
   // ── Build ────────────────────────────────────────────────────────
 
   @override
@@ -580,6 +659,11 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         backgroundColor: AppTheme.surface,
         titleSpacing: 0,
         actions: [
+          IconButton(
+            tooltip: 'Ganti nama',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: (_isSharing || _isExportingPdf) ? null : _renameDocument,
+          ),
           IconButton(
             tooltip: 'Bagikan',
             icon: const Icon(Icons.share_outlined),
