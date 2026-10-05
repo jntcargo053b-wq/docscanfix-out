@@ -72,143 +72,174 @@ class OcrService {
 
   TextRecognizer get _textRecognizer => _recognizerAt(0);
 
-  /// Extract text from a single image, dengan timeout [_perPageTimeout].
-  /// [slot] menentukan instance TextRecognizer mana dari pool yang dipakai
-  /// (default 0) — dipakai oleh [extractTextFromImages] untuk memproses
-  /// beberapa halaman paralel tanpa berbagi instance yang sama.
+  /// Extract text from a single image, preserving the legacy String API.
+  /// Use [extractPageResult] when the caller needs success/error information.
   Future<String> extractTextFromImage(String imagePath, {int slot = 0}) async {
-    // Single-image calls (mis. OCR ulang dari Detail) juga harus melewati
-    // antrean yang sama. Tanpa ini, dua tombol "OCR ulang" yang ditekan
-    // hampir bersamaan dapat memanggil processImage() pada recognizer yang
-    // sama secara concurrent. Batch OCR memakai pool+queue sendiri di atas,
-    // tetapi jalur single-image sebelumnya melewati queue sepenuhnya.
-    return _withOcrQueue<String>(() async {
-      try {
-        final inputImage = InputImage.fromFile(File(imagePath));
-        final RecognizedText recognizedText = await _recognizerAt(slot)
-            .processImage(inputImage)
-            .timeout(
-              _perPageTimeout,
-              onTimeout: () => throw TimeoutException(
-                'OCR timeout setelah ${_perPageTimeout.inSeconds}s pada: $imagePath',
-              ),
-            );
-        return recognizedText.text;
-      } on TimeoutException {
-        // Kembalikan string kosong — jangan blok halaman lain karena satu halaman lambat
-        return '';
-      } catch (e) {
-        throw Exception('OCR gagal: $e');
-      }
-    });
+    final result = await extractPageResult(imagePath, slot: slot);
+    return result.text;
   }
 
-  /// Extract text dari banyak halaman, dengan total timeout [_totalTimeout].
+  /// Extract one page with an explicit result status.
+  Future<OcrPageResult> extractPageResult(
+    String imagePath, {
+    int slot = 0,
+  }) async {
+    _validateSlot(slot);
+    return _withOcrQueue<OcrPageResult>(
+      () => _extractPageResult(imagePath, slot: slot),
+    );
+  }
+
+  /// Extract text from many pages using a small worker pool.
   ///
-  /// Menggunakan flag [cancelled] sebagai cancellation token. Setelah timeout,
-  /// flag di-set true sehingga batch berikutnya di loop langsung skip — loop
-  /// tidak terus berjalan di background setelah fungsi ini return.
+  /// Each worker owns one recognizer slot and takes the next page as soon as
+  /// its previous page finishes. This avoids waiting for the slowest page in
+  /// a static batch before starting another page.
   ///
-  /// PERF FIX (pool 2 recognizer — lihat catatan lengkap di [_poolSize]):
-  /// diproses [_poolSize] halaman per giliran secara PARALEL (Future.wait),
-  /// masing-masing di instance TextRecognizer terpisah dari pool. Urutan
-  /// hasil di [buffer] tetap sesuai urutan halaman asli (Future.wait
-  /// mengembalikan hasil dalam urutan input, terlepas dari urutan
-  /// selesainya) — nomor "Halaman N" di output tidak berubah perilakunya
-  /// sama sekali dibanding sebelumnya, cuma throughput-nya yang naik.
-  ///
-  /// BUG FIX sekalian (satu halaman error dulu menggagalkan SISA dokumen):
-  /// sebelumnya exception non-timeout dari satu halaman (mis. error native
-  /// ML Kit) lolos ke catch() di luar loop dan MENGHENTIKAN seluruh proses
-  /// — halaman-halaman setelahnya tidak pernah di-OCR meski filenya baik-
-  /// baik saja. Sekarang tiap panggilan individual dibungkus try/catch
-  /// sendiri — satu halaman gagal cuma jadi teks kosong untuk halaman itu,
-  /// halaman lain tetap diproses.
+  /// [isCancelled] is optional so screen/controller code can stop starting
+  /// new work when its lifecycle ends.
   Future<String> extractTextFromImages(
     List<String> imagePaths, {
     void Function(int index, OcrPageResult result)? onPageCompleted,
+    bool Function()? isCancelled,
   }) async {
     return _withOcrQueue<String>(() => _extractTextFromImagesImpl(
       imagePaths,
       onPageCompleted: onPageCompleted,
+      isCancelled: isCancelled,
     ));
   }
 
   Future<String> _extractTextFromImagesImpl(
     List<String> imagePaths, {
     void Function(int index, OcrPageResult result)? onPageCompleted,
+    bool Function()? isCancelled,
   }) async {
+    if (imagePaths.isEmpty) return '';
+
     final results = List<String>.filled(imagePaths.length, '');
-    bool cancelled = false;
+    final statuses = List<OcrPageResult?>.filled(imagePaths.length, null);
+    var nextIndex = 0;
+    final workerCount = imagePaths.length < _poolSize
+        ? imagePaths.length
+        : _poolSize;
+    final totalBudget = Duration(
+      milliseconds: (_perPageTimeout.inMilliseconds *
+              ((imagePaths.length + _poolSize - 1) ~/ _poolSize))
+          .clamp(
+            _perPageTimeout.inMilliseconds,
+            _totalTimeout.inMilliseconds,
+          ),
+    );
+    final deadline = DateTime.now().add(totalBudget);
 
-    final timer = Timer(_totalTimeout, () { cancelled = true; });
+    Future<void> worker(int slot) async {
+      while (true) {
+        if (_isDisposed || isCancelled?.call() == true) return;
 
-    try {
-      for (int start = 0; start < imagePaths.length; start += _poolSize) {
-        if (cancelled) break; // berhenti sebelum batch baru dimulai
+        final index = nextIndex++;
+        if (index >= imagePaths.length) return;
 
-        final end = (start + _poolSize < imagePaths.length)
-            ? start + _poolSize
-            : imagePaths.length;
-
-        final batchResults = await Future.wait([
-          for (int i = start; i < end; i++)
-            _safeExtractResult(imagePaths[i], slot: i - start),
-        ]);
-
-        // Batch yang sudah selesai harus tetap dipublikasikan, meskipun
-        // total timeout terpicu tepat saat batch ini selesai. Jangan buang
-        // hasil pasangan halaman yang sudah berhasil diproses.
-        for (int i = start; i < end; i++) {
-          final pageResult = batchResults[i - start];
-          results[i] = pageResult.text;
-          onPageCompleted?.call(i, pageResult);
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining <= Duration.zero) {
+          _reportPage(
+            index,
+            OcrPageResult(
+              text: '',
+              success: false,
+              errorMessage: 'Dilewati karena batas waktu total.',
+            ),
+            results,
+            statuses,
+            onPageCompleted,
+          );
+          continue;
         }
 
-        if (cancelled) break; // berhenti setelah batch yang selesai dilaporkan
+        final pageResult = await _extractPageResult(
+          imagePaths[index],
+          slot: slot,
+          timeout: remaining < _perPageTimeout ? remaining : _perPageTimeout,
+        );
+        _reportPage(
+          index,
+          pageResult,
+          results,
+          statuses,
+          onPageCompleted,
+        );
       }
-    } catch (_) {
-      // partial result tetap dikembalikan
-    } finally {
-      timer.cancel();
     }
 
-    // Susun buffer dari [results] (urutan halaman asli, terlepas dari
-    // urutan selesainya tiap batch) — halaman yang belum sempat diproses
-    // (mis. karena cancelled sebelum batch-nya mulai) tetap '' bawaan.
-    final buffer = StringBuffer();
-    for (int i = 0; i < results.length; i++) {
-      if (results[i].isEmpty) continue;
-      if (buffer.isNotEmpty) buffer.write('\n\n--- Halaman ${i + 1} ---\n\n');
-      buffer.write(results[i]);
+    await Future.wait([
+      for (var slot = 0; slot < workerCount; slot++) worker(slot),
+    ]);
+
+    final wasCancelled = _isDisposed || isCancelled?.call() == true;
+    for (var i = 0; i < imagePaths.length; i++) {
+      if (statuses[i] != null) continue;
+      _reportPage(
+        i,
+        OcrPageResult(
+          text: '',
+          success: false,
+          errorMessage: wasCancelled
+              ? 'Dibatalkan sebelum diproses.'
+              : 'Dilewati karena batas waktu total.',
+        ),
+        results,
+        statuses,
+        onPageCompleted,
+      );
     }
-    return buffer.toString();
+
+    final buffer = StringBuffer();
+    for (var i = 0; i < results.length; i++) {
+      final text = results[i].trim();
+      if (text.isEmpty) continue;
+      buffer
+        ..write('--- Halaman ${i + 1} ---')
+        ..write('\n')
+        ..write(text)
+        ..write('\n\n');
+    }
+    return buffer.toString().trim();
   }
 
-  /// Bungkus [extractTextFromImage] supaya error non-timeout dari SATU
-  /// halaman tidak ikut melempar ke [Future.wait] pemanggil (yang akan
-  /// membatalkan seluruh batch, termasuk halaman lain yang baik-baik
-  /// saja) — lihat catatan lengkap di [extractTextFromImages].
-  Future<OcrPageResult> _safeExtractResult(
+  void _reportPage(
+    int index,
+    OcrPageResult result,
+    List<String> results,
+    List<OcrPageResult?> statuses,
+    void Function(int index, OcrPageResult result)? onPageCompleted,
+  ) {
+    results[index] = result.text;
+    statuses[index] = result;
+    try {
+      onPageCompleted?.call(index, result);
+    } catch (_) {
+      // A UI callback must never abort the OCR worker pool.
+    }
+  }
+
+  Future<OcrPageResult> _extractPageResult(
     String imagePath, {
     required int slot,
+    Duration timeout = _perPageTimeout,
   }) async {
+    _validateSlot(slot);
     try {
       final inputImage = InputImage.fromFile(File(imagePath));
       final recognizedText = await _recognizerAt(slot)
           .processImage(inputImage)
-          .timeout(
-            _perPageTimeout,
-            onTimeout: () => throw TimeoutException(
-              'OCR timeout setelah ${_perPageTimeout.inSeconds}s',
-            ),
-          );
+          .timeout(timeout);
       return OcrPageResult(text: recognizedText.text, success: true);
-    } on TimeoutException catch (e) {
+    } on TimeoutException {
+      await _resetRecognizer(slot);
       return OcrPageResult(
         text: '',
         success: false,
-        errorMessage: e.message ?? 'OCR timeout',
+        errorMessage: 'OCR timeout setelah ${timeout.inSeconds}s',
       );
     } catch (e) {
       return OcrPageResult(
@@ -219,42 +250,41 @@ class OcrService {
     }
   }
 
-  /// Extract structured text with block and line positions.
-  Future<OcrResult> extractStructuredText(String imagePath) async {
-    try {
-      final inputImage = InputImage.fromFile(File(imagePath));
-      final RecognizedText recognizedText = await _textRecognizer
-          .processImage(inputImage)
-          .timeout(_perPageTimeout);
-
-      final blocks = recognizedText.blocks.map((block) {
-        return OcrBlock(
-          text: block.text,
-          lines: block.lines.map((line) => line.text).toList(),
-          boundingBox: BlockBoundingBox(
-            left: block.boundingBox.left,
-            top: block.boundingBox.top,
-            right: block.boundingBox.right,
-            bottom: block.boundingBox.bottom,
-          ),
-        );
-      }).toList();
-
-      return OcrResult(fullText: recognizedText.text, blocks: blocks);
-    } on TimeoutException {
-      return OcrResult(fullText: '', blocks: []);
-    } catch (e) {
-      throw Exception('OCR gagal: $e');
+  void _validateSlot(int slot) {
+    if (slot < 0 || slot >= _poolSize) {
+      throw RangeError.range(slot, 0, _poolSize - 1, 'slot');
     }
   }
 
+  Future<void> _resetRecognizer(int slot) async {
+    final recognizer = _recognizers[slot];
+    _recognizers[slot] = null;
+    if (recognizer != null) {
+      try {
+        await recognizer.close();
+      } catch (_) {}
+    }
+  }
+
+  bool _isDisposed = false;
+
+  /// Queue disposal behind any active OCR request so native recognizers are
+  /// not closed while their platform call is still being awaited.
   void dispose() {
-    for (int i = 0; i < _recognizers.length; i++) {
-      _recognizers[i]?.close();
-      _recognizers[i] = null;
-    }
+    if (_isDisposed) return;
+    _isDisposed = true;
+    unawaited(_withOcrQueue<void>(() async {
+      for (var i = 0; i < _recognizers.length; i++) {
+        final recognizer = _recognizers[i];
+        _recognizers[i] = null;
+        if (recognizer != null) {
+          try {
+            await recognizer.close();
+          } catch (_) {}
+        }
+      }
+    }));
   }
-}
 
 class OcrResult {
   final String fullText;
