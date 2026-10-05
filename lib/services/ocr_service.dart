@@ -77,23 +77,30 @@ class OcrService {
   /// (default 0) — dipakai oleh [extractTextFromImages] untuk memproses
   /// beberapa halaman paralel tanpa berbagi instance yang sama.
   Future<String> extractTextFromImage(String imagePath, {int slot = 0}) async {
-    try {
-      final inputImage = InputImage.fromFile(File(imagePath));
-      final RecognizedText recognizedText = await _recognizerAt(slot)
-          .processImage(inputImage)
-          .timeout(
-            _perPageTimeout,
-            onTimeout: () => throw TimeoutException(
-              'OCR timeout setelah ${_perPageTimeout.inSeconds}s pada: $imagePath',
-            ),
-          );
-      return recognizedText.text;
-    } on TimeoutException {
-      // Kembalikan string kosong — jangan blok halaman lain karena satu halaman lambat
-      return '';
-    } catch (e) {
-      throw Exception('OCR gagal: $e');
-    }
+    // Single-image calls (mis. OCR ulang dari Detail) juga harus melewati
+    // antrean yang sama. Tanpa ini, dua tombol "OCR ulang" yang ditekan
+    // hampir bersamaan dapat memanggil processImage() pada recognizer yang
+    // sama secara concurrent. Batch OCR memakai pool+queue sendiri di atas,
+    // tetapi jalur single-image sebelumnya melewati queue sepenuhnya.
+    return _withOcrQueue<String>(() async {
+      try {
+        final inputImage = InputImage.fromFile(File(imagePath));
+        final RecognizedText recognizedText = await _recognizerAt(slot)
+            .processImage(inputImage)
+            .timeout(
+              _perPageTimeout,
+              onTimeout: () => throw TimeoutException(
+                'OCR timeout setelah ${_perPageTimeout.inSeconds}s pada: $imagePath',
+              ),
+            );
+        return recognizedText.text;
+      } on TimeoutException {
+        // Kembalikan string kosong — jangan blok halaman lain karena satu halaman lambat
+        return '';
+      } catch (e) {
+        throw Exception('OCR gagal: $e');
+      }
+    });
   }
 
   /// Extract text dari banyak halaman, dengan total timeout [_totalTimeout].
