@@ -333,6 +333,8 @@ class OcrService {
       }
     }));
   }
+  }
+}
 
 class OcrResult {
   final String fullText;
