@@ -896,11 +896,13 @@ class ScanController extends ChangeNotifier {
       );
       if (runId != _ocrRunId) return;
 
-      // Fallback konservatif: preprocessing dipakai sebagai jalur utama,
-      // tetapi jika satu halaman menghasilkan teks kosong, coba foto sumber
-      // asli. Ini menangani karakter kecil/halus yang bisa hilang saat
-      // resize/grayscale/JPEG preprocessing. Hanya halaman kosong yang
-      // diproses ulang sehingga foto normal tidak membayar biaya tambahan.
+      // Adaptive fallback: hanya halaman yang kosong dari OCR utama yang
+      // masuk ke jalur lebih agresif. Urutannya:
+      //   1) contrast + sharpen + Otsu binarization
+      //   2) foto asli jika hasil enhanced masih kosong
+      // Dengan urutan ini, foto normal tidak membayar biaya preprocessing
+      // tambahan dan hasil OCR utama tidak pernah ditimpa hasil yang lebih
+      // buruk.
       final fallbackPaths = <String>[];
       final fallbackIndexes = <int>[];
       for (var i = 0;
@@ -913,9 +915,17 @@ class ScanController extends ChangeNotifier {
       }
 
       if (fallbackPaths.isNotEmpty) {
+        final enhancedPaths = <String>[];
         try {
+          for (final path in fallbackPaths) {
+            if (_disposed || runId != _ocrRunId) return;
+            enhancedPaths.add(
+              await _enhanceService.prepareForOcrEnhanced(path),
+            );
+          }
+
           await _ocrService.extractTextFromImages(
-            fallbackPaths,
+            enhancedPaths,
             isCancelled: () => _disposed || runId != _ocrRunId,
             onPageCompleted: (fallbackIndex, result) {
               if (runId != _ocrRunId ||
@@ -932,10 +942,76 @@ class ScanController extends ChangeNotifier {
               notifyListeners();
             },
           );
+
+          final originalFallbackPaths = <String>[];
+          final originalFallbackIndexes = <int>[];
+          for (var i = 0;
+              i < _ocrPageTexts.length && i < fallbackIndexes.length;
+              i++) {
+            final pageIndex = fallbackIndexes[i];
+            if (_ocrPageTexts[pageIndex].trim().isEmpty) {
+              originalFallbackPaths.add(fallbackPaths[i]);
+              originalFallbackIndexes.add(pageIndex);
+            }
+          }
+
+          if (originalFallbackPaths.isNotEmpty) {
+            await _ocrService.extractTextFromImages(
+              originalFallbackPaths,
+              isCancelled: () => _disposed || runId != _ocrRunId,
+              onPageCompleted: (originalIndex, result) {
+                if (runId != _ocrRunId ||
+                    originalIndex >= originalFallbackIndexes.length) {
+                  return;
+                }
+                final pageIndex = originalFallbackIndexes[originalIndex];
+                if (pageIndex >= _ocrPageStatuses.length) return;
+                _ocrPageTexts[pageIndex] = result.text;
+                _ocrPageErrors[pageIndex] = result.errorMessage;
+                _ocrPageStatuses[pageIndex] = result.success
+                    ? OcrPageStatus.success
+                    : OcrPageStatus.failed;
+                notifyListeners();
+              },
+            );
+          }
         } catch (_) {
-          // Fallback is best-effort. Never discard valid OCR text already
-          // obtained from the primary/preprocessed image when the original
-          // image cannot be processed.
+          // Enhanced OCR is best-effort. Never discard valid OCR text already
+          // obtained from the primary path. Original-photo fallback is still
+          // attempted below when enhanced preprocessing itself fails.
+          final remainingPaths = <String>[];
+          final remainingIndexes = <int>[];
+          for (var i = 0; i < fallbackIndexes.length; i++) {
+            final pageIndex = fallbackIndexes[i];
+            if (_ocrPageTexts[pageIndex].trim().isEmpty) {
+              remainingPaths.add(fallbackPaths[i]);
+              remainingIndexes.add(pageIndex);
+            }
+          }
+          if (remainingPaths.isNotEmpty) {
+            try {
+              await _ocrService.extractTextFromImages(
+                remainingPaths,
+                isCancelled: () => _disposed || runId != _ocrRunId,
+                onPageCompleted: (originalIndex, result) {
+                  if (runId != _ocrRunId ||
+                      originalIndex >= remainingIndexes.length) {
+                    return;
+                  }
+                  final pageIndex = remainingIndexes[originalIndex];
+                  if (pageIndex >= _ocrPageStatuses.length) return;
+                  _ocrPageTexts[pageIndex] = result.text;
+                  _ocrPageErrors[pageIndex] = result.errorMessage;
+                  _ocrPageStatuses[pageIndex] = result.success
+                      ? OcrPageStatus.success
+                      : OcrPageStatus.failed;
+                  notifyListeners();
+                },
+              );
+            } catch (_) {}
+          }
+        } finally {
+          await _scannerService.cleanupFiles(enhancedPaths);
         }
       }
 
