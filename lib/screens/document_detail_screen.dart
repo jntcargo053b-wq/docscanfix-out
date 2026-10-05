@@ -296,11 +296,22 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       String text;
       try {
         text = await OcrService().extractTextFromImage(prepared);
-        // Gunakan foto asli sebagai fallback jika preprocessing terlalu agresif
-        // untuk teks kecil/pudar. Jalur ini hanya dijalankan saat hasil utama
-        // kosong, sehingga dokumen normal tidak mendapat beban OCR dua kali.
         if (text.trim().isEmpty) {
-          text = await OcrService().extractTextFromImage(_doc.imagePaths[index]);
+          String? enhanced;
+          try {
+            final enhancedPath =
+                await _enhanceService.prepareForOcrEnhanced(_doc.imagePaths[index]);
+            try {
+              enhanced = await OcrService().extractTextFromImage(enhancedPath);
+            } finally {
+              try {
+                await File(enhancedPath).delete();
+              } catch (_) {}
+            }
+          } catch (_) {}
+          text = enhanced?.trim().isNotEmpty == true
+              ? enhanced!
+              : await OcrService().extractTextFromImage(_doc.imagePaths[index]);
         }
       } finally {
         try {
@@ -381,15 +392,55 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         }
       }
       if (fallbackPaths.isNotEmpty) {
-        await OcrService().extractTextFromImages(
-          fallbackPaths,
-          isCancelled: () => !mounted,
-          onPageCompleted: (index, result) {
-            if (index < fallbackIndexes.length) {
-              pageTexts[fallbackIndexes[index]] = result.text;
+        final enhancedPaths = <String>[];
+        try {
+          for (final path in fallbackPaths) {
+            if (!mounted) return;
+            enhancedPaths.add(
+              await _enhanceService.prepareForOcrEnhanced(path),
+            );
+          }
+          await OcrService().extractTextFromImages(
+            enhancedPaths,
+            isCancelled: () => !mounted,
+            onPageCompleted: (index, result) {
+              if (index < fallbackIndexes.length) {
+                pageTexts[fallbackIndexes[index]] = result.text;
+              }
+            },
+          );
+
+          final originalRetryPaths = <String>[];
+          final originalRetryIndexes = <int>[];
+          for (var i = 0; i < fallbackIndexes.length; i++) {
+            final pageIndex = fallbackIndexes[i];
+            if (pageTexts[pageIndex].trim().isEmpty) {
+              originalRetryPaths.add(fallbackPaths[i]);
+              originalRetryIndexes.add(pageIndex);
             }
-          },
-        );
+          }
+          if (originalRetryPaths.isNotEmpty) {
+            await OcrService().extractTextFromImages(
+              originalRetryPaths,
+              isCancelled: () => !mounted,
+              onPageCompleted: (index, result) {
+                if (index < originalRetryIndexes.length) {
+                  pageTexts[originalRetryIndexes[index]] = result.text;
+                }
+              },
+            );
+          }
+        } finally {
+          await Future.wait(
+            enhancedPaths.map(
+              (path) async {
+                try {
+                  await File(path).delete();
+                } catch (_) {}
+              },
+            ),
+          );
+        }
       }
 
       if (!mounted) return;
