@@ -25,6 +25,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   final _enhanceService = ImageEnhanceService();
   bool _isSharing = false;
   bool _isExportingPdf = false;
+  bool _isFullOcrRunning = false;
   final Set<int> _ocrPageRetries = <int>{};
   late List<String> _pageOcrTexts;
 
@@ -346,6 +347,95 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
     }
   }
 
+  Future<void> _rerunOcrAllPages() async {
+    if (_isFullOcrRunning || _isSharing || _isExportingPdf) return;
+
+    setState(() => _isFullOcrRunning = true);
+    final originalPaths = List<String>.from(_doc.imagePaths);
+    final preparedPaths = <String>[];
+    final tempPaths = <String>{};
+
+    try {
+      for (final path in originalPaths) {
+        final prepared = await _enhanceService.prepareForOcr(path);
+        preparedPaths.add(prepared);
+        tempPaths.add(prepared);
+        if (!mounted) return;
+      }
+
+      final pageTexts = List<String>.filled(originalPaths.length, '');
+      await OcrService().extractTextFromImages(
+        preparedPaths,
+        onPageCompleted: (index, result) {
+          if (index < pageTexts.length) pageTexts[index] = result.text;
+        },
+      );
+
+      final fallbackPaths = <String>[];
+      final fallbackIndexes = <int>[];
+      for (var i = 0; i < pageTexts.length; i++) {
+        if (pageTexts[i].trim().isEmpty) {
+          fallbackPaths.add(originalPaths[i]);
+          fallbackIndexes.add(i);
+        }
+      }
+      if (fallbackPaths.isNotEmpty) {
+        await OcrService().extractTextFromImages(
+          fallbackPaths,
+          onPageCompleted: (index, result) {
+            if (index < fallbackIndexes.length) {
+              pageTexts[fallbackIndexes[index]] = result.text;
+            }
+          },
+        );
+      }
+
+      if (!mounted) return;
+      final aggregate = <String>[];
+      for (var i = 0; i < pageTexts.length; i++) {
+        final text = pageTexts[i].trim();
+        if (text.isNotEmpty) {
+          aggregate.add('--- Halaman ' + (i + 1).toString() + '\n' + text);
+        }
+      }
+
+      final oldPdfPath = _doc.pdfPath;
+      final updated = _doc.copyWith(
+        pageTexts: pageTexts,
+        extractedText: aggregate.isEmpty ? null : aggregate.join('\n\n'),
+        clearPdfPath: true,
+      );
+      await _storageService.updateDocument(updated, immediate: true);
+      if (!mounted) return;
+
+      setState(() {
+        _doc = updated;
+        _pageOcrTexts = pageTexts;
+      });
+
+      if (oldPdfPath != null) {
+        try {
+          await File(oldPdfPath).delete();
+        } catch (_) {}
+      }
+
+      if (aggregate.isEmpty) {
+        _showError('OCR selesai, tetapi tidak ada teks yang terdeteksi.');
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('OCR seluruh dokumen berhasil diperbarui.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) _showError('OCR seluruh dokumen gagal: $e');
+    } finally {
+      for (final path in tempPaths) {
+        try { await File(path).delete(); } catch (_) {}
+      }
+      if (mounted) setState(() => _isFullOcrRunning = false);
+    }
+  }
+
   Future<void> _showPageOcr() async {
     final hasPageData = _doc.pageTexts.length == _doc.imagePaths.length;
     if (!hasPageData) {
@@ -355,12 +445,21 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
           title: const Text('OCR per halaman'),
           content: const Text(
             'Dokumen ini dibuat sebelum OCR per halaman disimpan. '
-            'Jalankan OCR ulang dari layar Scan untuk mengaktifkan hasil OCR per halaman.',
+            'Semua foto halaman masih tersedia, jadi OCR dapat dijalankan '
+            'langsung dari sini tanpa kembali ke layar Scan.',
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Tutup'),
+              child: const Text('Batal'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _rerunOcrAllPages();
+              },
+              icon: const Icon(Icons.text_snippet_outlined),
+              label: const Text('OCR Semua Halaman'),
             ),
           ],
         ),
