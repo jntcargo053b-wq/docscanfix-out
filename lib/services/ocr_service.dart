@@ -333,7 +333,6 @@ class OcrService {
       }
     }));
   }
-  }
 }
 
 class OcrResult {
