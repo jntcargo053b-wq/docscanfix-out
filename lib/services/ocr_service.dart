@@ -85,6 +85,13 @@ class OcrService {
     int slot = 0,
   }) async {
     _validateSlot(slot);
+    if (_isDisposed) {
+      return const OcrPageResult(
+        text: '',
+        success: false,
+        errorMessage: 'OCR service sudah dihentikan.',
+      );
+    }
     return _withOcrQueue<OcrPageResult>(
       () => _extractPageResult(imagePath, slot: slot),
     );
@@ -123,14 +130,12 @@ class OcrService {
     final workerCount = imagePaths.length < _poolSize
         ? imagePaths.length
         : _poolSize;
-    final totalBudget = Duration(
-      milliseconds: (_perPageTimeout.inMilliseconds *
-              ((imagePaths.length + _poolSize - 1) ~/ _poolSize))
-          .clamp(
-            _perPageTimeout.inMilliseconds,
-            _totalTimeout.inMilliseconds,
-          ),
-    );
+    final requestedBudgetMs = _perPageTimeout.inMilliseconds *
+        ((imagePaths.length + _poolSize - 1) ~/ _poolSize);
+    final totalBudgetMs = requestedBudgetMs < _totalTimeout.inMilliseconds
+        ? requestedBudgetMs
+        : _totalTimeout.inMilliseconds;
+    final totalBudget = Duration(milliseconds: totalBudgetMs);
     final deadline = DateTime.now().add(totalBudget);
 
     Future<void> worker(int slot) async {
@@ -228,6 +233,13 @@ class OcrService {
     Duration timeout = _perPageTimeout,
   }) async {
     _validateSlot(slot);
+    if (_isDisposed) {
+      return const OcrPageResult(
+        text: '',
+        success: false,
+        errorMessage: 'OCR service sudah dihentikan.',
+      );
+    }
     try {
       final inputImage = InputImage.fromFile(File(imagePath));
       final recognizedText = await _recognizerAt(slot)
