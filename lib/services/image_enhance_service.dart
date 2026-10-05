@@ -32,6 +32,11 @@ Future<String> _prepareForOcrIsolate(String imagePath) async {
   return svc._processPrepareForOcr(imagePath);
 }
 
+Future<String> _prepareForOcrEnhancedIsolate(String imagePath) async {
+  final svc = ImageEnhanceService();
+  return svc._processPrepareForOcrEnhanced(imagePath);
+}
+
 Future<String> _prepareForPdfIsolate(String imagePath) async {
   final svc = ImageEnhanceService();
   return svc._processPrepareForPdf(imagePath);
@@ -170,6 +175,11 @@ class ImageEnhanceService {
   /// Grayscale tetap dipakai untuk menghemat memori. Dijalankan di isolate.
   Future<String> prepareForOcr(String imagePath) =>
       compute(_prepareForOcrIsolate, imagePath);
+
+  /// Fallback OCR preprocessing for difficult photos. Kept separate from
+  /// the primary path so good photos never pay for aggressive enhancement.
+  Future<String> prepareForOcrEnhanced(String imagePath) =>
+      compute(_prepareForOcrEnhancedIsolate, imagePath);
 
   /// Resize + kompres sebelum masuk PDF pipeline.
   ///
@@ -736,6 +746,83 @@ class ImageEnhanceService {
       Uint8List.fromList(img.encodeJpg(image, quality: 75)),
     );
     return outPath;
+  }
+
+  /// Fallback OCR preprocessing untuk foto sulit.
+  ///
+  /// Jalur utama sengaja tidak diubah. Fallback ini menambahkan contrast,
+  /// sharpening ringan, lalu binarisasi Otsu setelah resize/grayscale.
+  /// Karena hanya dipakai ketika OCR utama kosong, preprocessing agresif
+  /// tidak dapat merusak hasil OCR yang sudah berhasil.
+  Future<String> _processPrepareForOcrEnhanced(String imagePath) async {
+    final bytes = await File(imagePath).readAsBytes();
+    img.Image? image = img.decodeImage(bytes);
+    if (image == null) throw Exception('Gagal decode gambar: $imagePath');
+    image = img.bakeOrientation(image);
+
+    const maxOcrDimension = 2048;
+    if (image.width > maxOcrDimension || image.height > maxOcrDimension) {
+      image = img.copyResize(
+        image,
+        width: image.width > image.height ? maxOcrDimension : -1,
+        height: image.height >= image.width ? maxOcrDimension : -1,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+
+    image = img.grayscale(image);
+    image = img.contrast(image, contrast: 70);
+    image = img.convolution(
+      image,
+      filter: [0, -1, 0, -1, 5, -1, 0, -1, 0],
+    );
+    image = _binarizeOtsu(image);
+
+    return _saveTempNamed(image, 'ocr_enhanced', quality: 95);
+  }
+
+  img.Image _binarizeOtsu(img.Image image) {
+    final histogram = List<int>.filled(256, 0);
+    for (final px in image) {
+      histogram[img.getLuminance(px).round().clamp(0, 255)]++;
+    }
+
+    final total = image.width * image.height;
+    if (total == 0) return image;
+
+    var sumAll = 0.0;
+    for (var i = 0; i < histogram.length; i++) {
+      sumAll += i * histogram[i];
+    }
+
+    var weightBackground = 0;
+    var sumBackground = 0.0;
+    var bestVariance = -1.0;
+    var threshold = 128;
+    for (var i = 0; i < histogram.length; i++) {
+      weightBackground += histogram[i];
+      if (weightBackground == 0) continue;
+      final weightForeground = total - weightBackground;
+      if (weightForeground == 0) break;
+      sumBackground += i * histogram[i];
+      final meanBackground = sumBackground / weightBackground;
+      final meanForeground = (sumAll - sumBackground) / weightForeground;
+      final diff = meanBackground - meanForeground;
+      final variance =
+          weightBackground.toDouble() * weightForeground * diff * diff;
+      if (variance > bestVariance) {
+        bestVariance = variance;
+        threshold = i;
+      }
+    }
+
+    for (final px in image) {
+      final value = img.getLuminance(px) >= threshold ? 255 : 0;
+      px.r = value;
+      px.g = value;
+      px.b = value;
+    }
+    return image;
   }
 
   /// Resize ke max 2048px + konversi grayscale untuk OCR.
