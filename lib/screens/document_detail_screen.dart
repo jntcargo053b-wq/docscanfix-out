@@ -871,12 +871,11 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
               text: _doc.extractedText?.trim().isNotEmpty == true
                   ? _doc.extractedText!
                   : 'Belum ada hasil OCR. Jalankan OCR dari sini.',
-                onViewAll: _showOcrText,
-                onCopy: _copyOcrText,
-                onPageOcr: _showPageOcr,
-              ),
-              const SizedBox(height: 12),
-            ],
+              onViewAll: _showOcrText,
+              onCopy: _copyOcrText,
+              onPageOcr: _showPageOcr,
+            ),
+            const SizedBox(height: 12),
             if (_isFullOcrRunning) ...[
               Container(
                 width: double.infinity,
