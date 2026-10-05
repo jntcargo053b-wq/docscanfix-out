@@ -26,9 +26,6 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   bool _isSharing = false;
   bool _isExportingPdf = false;
   bool _isFullOcrRunning = false;
-  int _fullOcrCompleted = 0;
-  int _fullOcrTotal = 0;
-  String _fullOcrStage = '';
   final Set<int> _ocrPageRetries = <int>{};
   late List<String> _pageOcrTexts;
 
@@ -353,14 +350,8 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   Future<void> _rerunOcrAllPages() async {
     if (_isFullOcrRunning || _isSharing || _isExportingPdf) return;
 
+    setState(() => _isFullOcrRunning = true);
     final originalPaths = List<String>.from(_doc.imagePaths);
-    final total = originalPaths.length;
-    setState(() {
-      _isFullOcrRunning = true;
-      _fullOcrCompleted = 0;
-      _fullOcrTotal = total;
-      _fullOcrStage = 'Menyiapkan gambar';
-    });
     final preparedPaths = <String>[];
     final tempPaths = <String>{};
 
@@ -370,27 +361,13 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         preparedPaths.add(prepared);
         tempPaths.add(prepared);
         if (!mounted) return;
-        setState(() {
-          _fullOcrCompleted = i + 1;
-          _fullOcrStage = 'Menyiapkan gambar';
-        });
       }
 
       final pageTexts = List<String>.filled(originalPaths.length, '');
-      setState(() {
-        _fullOcrCompleted = 0;
-        _fullOcrStage = 'Mengenali teks';
-      });
       await OcrService().extractTextFromImages(
         preparedPaths,
         onPageCompleted: (index, result) {
           if (index < pageTexts.length) pageTexts[index] = result.text;
-          if (mounted) {
-            setState(() {
-              _fullOcrCompleted = (index + 1).clamp(0, total);
-              _fullOcrStage = 'Mengenali teks';
-            });
-          }
         },
       );
 
@@ -403,25 +380,11 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
         }
       }
       if (fallbackPaths.isNotEmpty) {
-        if (mounted) {
-          setState(() {
-            _fullOcrCompleted = 0;
-            _fullOcrTotal = fallbackPaths.length;
-            _fullOcrStage = 'Mencoba foto asli';
-          });
-        }
         await OcrService().extractTextFromImages(
           fallbackPaths,
           onPageCompleted: (index, result) {
             if (index < fallbackIndexes.length) {
               pageTexts[fallbackIndexes[index]] = result.text;
-            }
-            if (mounted) {
-              setState(() {
-                _fullOcrCompleted =
-                    (index + 1).clamp(0, fallbackPaths.length);
-                _fullOcrStage = 'Mencoba foto asli';
-              });
             }
           },
         );
@@ -469,14 +432,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       for (final path in tempPaths) {
         try { await File(path).delete(); } catch (_) {}
       }
-      if (mounted) {
-        setState(() {
-          _isFullOcrRunning = false;
-          _fullOcrCompleted = 0;
-          _fullOcrTotal = 0;
-          _fullOcrStage = '';
-        });
-      }
+      if (mounted) setState(() => _isFullOcrRunning = false);
     }
   }
 
@@ -563,14 +519,6 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Tutup'),
-          ),
-          FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(dialogContext);
-              _rerunOcrAllPages();
-            },
-            icon: const Icon(Icons.text_snippet_outlined),
-            label: const Text('OCR Semua'),
           ),
         ],
         ),
@@ -867,41 +815,13 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
                 ),
               ],
             ),
-            _OcrPreviewCard(
-              text: _doc.extractedText?.trim().isNotEmpty == true
-                  ? _doc.extractedText!
-                  : 'Belum ada hasil OCR. Jalankan OCR dari sini.',
-              onViewAll: _showOcrText,
-              onCopy: _copyOcrText,
-              onPageOcr: _showPageOcr,
-            ),
-            const SizedBox(height: 12),
-            if (_isFullOcrRunning) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.surfaceLight),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _fullOcrTotal > 0
-                          ? '$_fullOcrStage • $_fullOcrCompleted/$_fullOcrTotal'
-                          : _fullOcrStage,
-                      style: Theme.of(context).textTheme.labelLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: _fullOcrTotal > 0
-                          ? _fullOcrCompleted / _fullOcrTotal
-                          : null,
-                    ),
-                  ],
-                ),
+            if (_doc.extractedText != null &&
+                _doc.extractedText!.trim().isNotEmpty) ...[
+              _OcrPreviewCard(
+                text: _doc.extractedText!,
+                onViewAll: _showOcrText,
+                onCopy: _copyOcrText,
+                onPageOcr: _showPageOcr,
               ),
               const SizedBox(height: 12),
             ],
