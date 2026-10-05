@@ -278,6 +278,42 @@ class OcrService {
     }
   }
 
+  /// Extract structured text with block and line positions.
+  Future<OcrResult> extractStructuredText(String imagePath) async {
+    if (_isDisposed) {
+      return OcrResult(fullText: '', blocks: []);
+    }
+
+    return _withOcrQueue<OcrResult>(() async {
+      try {
+        final inputImage = InputImage.fromFile(File(imagePath));
+        final recognizedText = await _recognizerAt(0)
+            .processImage(inputImage)
+            .timeout(_perPageTimeout);
+
+        final blocks = recognizedText.blocks.map((block) {
+          return OcrBlock(
+            text: block.text,
+            lines: block.lines.map((line) => line.text).toList(),
+            boundingBox: BlockBoundingBox(
+              left: block.boundingBox.left,
+              top: block.boundingBox.top,
+              right: block.boundingBox.right,
+              bottom: block.boundingBox.bottom,
+            ),
+          );
+        }).toList();
+
+        return OcrResult(fullText: recognizedText.text, blocks: blocks);
+      } on TimeoutException {
+        await _resetRecognizer(0);
+        return OcrResult(fullText: '', blocks: []);
+      } catch (e) {
+        throw Exception('OCR gagal: $e');
+      }
+    });
+  }
+
   bool _isDisposed = false;
 
   /// Queue disposal behind any active OCR request so native recognizers are
