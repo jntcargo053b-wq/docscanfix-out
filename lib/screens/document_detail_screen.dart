@@ -295,6 +295,12 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       String text;
       try {
         text = await OcrService().extractTextFromImage(prepared);
+        // Gunakan foto asli sebagai fallback jika preprocessing terlalu agresif
+        // untuk teks kecil/pudar. Jalur ini hanya dijalankan saat hasil utama
+        // kosong, sehingga dokumen normal tidak mendapat beban OCR dua kali.
+        if (text.trim().isEmpty) {
+          text = await OcrService().extractTextFromImage(_doc.imagePaths[index]);
+        }
       } finally {
         try {
           await File(prepared).delete();
