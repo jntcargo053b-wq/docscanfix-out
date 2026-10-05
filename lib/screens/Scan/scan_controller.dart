@@ -883,6 +883,7 @@ class ScanController extends ChangeNotifier {
 
       await _ocrService.extractTextFromImages(
         preparedPaths,
+        isCancelled: () => _disposed || runId != _ocrRunId,
         onPageCompleted: (index, result) {
           if (runId != _ocrRunId || index >= _ocrPageStatuses.length) return;
           _ocrPageTexts[index] = result.text;
@@ -915,6 +916,7 @@ class ScanController extends ChangeNotifier {
         try {
           await _ocrService.extractTextFromImages(
             fallbackPaths,
+            isCancelled: () => _disposed || runId != _ocrRunId,
             onPageCompleted: (fallbackIndex, result) {
               if (runId != _ocrRunId ||
                   fallbackIndex >= fallbackIndexes.length) {
