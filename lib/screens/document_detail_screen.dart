@@ -366,6 +366,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       final pageTexts = List<String>.filled(originalPaths.length, '');
       await OcrService().extractTextFromImages(
         preparedPaths,
+        isCancelled: () => !mounted,
         onPageCompleted: (index, result) {
           if (index < pageTexts.length) pageTexts[index] = result.text;
         },
@@ -382,6 +383,7 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
       if (fallbackPaths.isNotEmpty) {
         await OcrService().extractTextFromImages(
           fallbackPaths,
+          isCancelled: () => !mounted,
           onPageCompleted: (index, result) {
             if (index < fallbackIndexes.length) {
               pageTexts[fallbackIndexes[index]] = result.text;
