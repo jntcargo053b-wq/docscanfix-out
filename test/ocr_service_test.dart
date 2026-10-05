@@ -30,4 +30,49 @@ void main() {
       expect(result.errorMessage, isNotNull);
     }
   });
+  test('callback errors do not stop remaining OCR pages', () async {
+    final service = OcrService();
+    final completed = <int>{};
+
+    await service.extractTextFromImages(
+      const [
+        '/docscan/missing-callback-1.jpg',
+        '/docscan/missing-callback-2.jpg',
+        '/docscan/missing-callback-3.jpg',
+      ],
+      onPageCompleted: (index, _) {
+        completed.add(index);
+        if (index == 0) throw StateError('simulated UI callback failure');
+      },
+    );
+
+    expect(completed, {0, 1, 2});
+  });
+
+  test('reports cancelled pages without starting OCR work', () async {
+    final service = OcrService();
+    final completed = <int, OcrPageResult>{};
+
+    await service.extractTextFromImages(
+      const [
+        '/docscan/cancelled-1.jpg',
+        '/docscan/cancelled-2.jpg',
+        '/docscan/cancelled-3.jpg',
+      ],
+      isCancelled: () => true,
+      onPageCompleted: (index, result) {
+        completed[index] = result;
+      },
+    );
+
+    expect(completed.keys, {0, 1, 2});
+    expect(
+      completed.values.every(
+        (result) =>
+            result.success == false &&
+            result.errorMessage == 'Dibatalkan sebelum diproses.',
+      ),
+      isTrue,
+    );
+  });
 }
