@@ -675,9 +675,25 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
           await _enhanceService.generateThumbnail(workingPaths.first);
       final oldThumbnail = _doc.thumbnailPath;
       final oldPdf = _doc.pdfPath;
+      // Keep aggregate OCR in the same order as the pages. The previous
+      // aggregate string was left untouched after reorder/delete, so search
+      // and exports could show OCR text in the old order or for deleted pages.
+      final orderedOcr = <String>[];
+      if (hasPageTexts) {
+        for (var i = 0; i < workingTexts.length; i++) {
+          final text = workingTexts[i].trim();
+          if (text.isNotEmpty) {
+            orderedOcr.add('--- Halaman ${i + 1} ---\\n$text');
+          }
+        }
+      }
       final updated = _doc.copyWith(
         imagePaths: workingPaths,
         pageTexts: hasPageTexts ? workingTexts : const [],
+        extractedText: hasPageTexts && orderedOcr.isNotEmpty
+            ? orderedOcr.join('\\n\\n')
+            : null,
+        clearExtractedText: !hasPageTexts || orderedOcr.isEmpty,
         clearPdfPath: true,
         thumbnailPath: newThumbnail,
       );
