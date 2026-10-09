@@ -799,6 +799,17 @@ class ImageEnhanceService {
     }
 
     image = img.grayscale(image);
+
+    // Deskew is intentionally restricted to the enhanced fallback path.
+    // The original image and primary OCR path remain untouched. Estimate the
+    // angle on a small preview, then rotate only when the projection score
+    // indicates a clear improvement; this avoids expensive full-resolution
+    // angle searches and reduces the risk of rotating an already-straight page.
+    final deskewAngle = _estimateDeskewAngle(image);
+    if (deskewAngle.abs() >= 0.5) {
+      image = img.copyRotate(image, angle: deskewAngle);
+    }
+
     image = img.contrast(image, contrast: 70);
     image = img.convolution(
       image,
@@ -812,6 +823,61 @@ class ImageEnhanceService {
       quality: 95,
       directoryPath: tempDirectoryPath,
     );
+  }
+
+  /// Estimate small text-line skew by maximizing horizontal projection
+  /// concentration. Work on a downscaled preview so this fallback remains
+  /// bounded on high-resolution phone photos. Returns 0 when no confident
+  /// improvement is found; rotation is limited to +/- 7 degrees.
+  double _estimateDeskewAngle(img.Image source) {
+    const maxPreviewDimension = 800;
+    final preview = source.width > maxPreviewDimension ||
+            source.height > maxPreviewDimension
+        ? img.copyResize(
+            source,
+            width: source.width >= source.height ? maxPreviewDimension : -1,
+            height: source.height > source.width ? maxPreviewDimension : -1,
+            interpolation: img.Interpolation.average,
+          )
+        : source;
+
+    final baseline = _horizontalProjectionScore(preview, 0);
+    var bestScore = baseline;
+    var bestAngle = 0.0;
+    for (var step = -14; step <= 14; step++) {
+      final angle = step * 0.5;
+      if (angle == 0) continue;
+      final score = _horizontalProjectionScore(preview, angle);
+      if (score > bestScore) {
+        bestScore = score;
+        bestAngle = angle;
+      }
+    }
+
+    // Require a meaningful score improvement; otherwise avoid changing pixels.
+    if (baseline <= 0 || (bestScore - baseline) / baseline < 0.025) {
+      return 0;
+    }
+    return bestAngle;
+  }
+
+  double _horizontalProjectionScore(img.Image source, double angle) {
+    final rotated = angle == 0 ? source : img.copyRotate(source, angle: angle);
+    final rowCounts = List<int>.filled(rotated.height, 0);
+    // Sample every second pixel to keep the angle search inexpensive.
+    for (var y = 0; y < rotated.height; y += 2) {
+      for (var x = 0; x < rotated.width; x += 2) {
+        if (img.getLuminance(rotated.getPixel(x, y)) < 180) {
+          rowCounts[y]++;
+        }
+      }
+    }
+    var score = 0.0;
+    for (var y = 1; y < rowCounts.length; y += 2) {
+      final difference = rowCounts[y] - rowCounts[y - 1];
+      score += difference * difference;
+    }
+    return score;
   }
 
   img.Image _binarizeOtsu(img.Image image) {
