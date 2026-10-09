@@ -844,6 +844,15 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
                 onPageOcr: _showPageOcr,
               ),
               const SizedBox(height: 12),
+            ] else ...[
+              _OcrUnavailableCard(
+                isRunning: _isFullOcrRunning,
+                enabled: _doc.imagePaths.isNotEmpty &&
+                    !_isSharing &&
+                    !_isExportingPdf,
+                onRunOcr: _rerunOcrAllPages,
+              ),
+              const SizedBox(height: 12),
             ],
             Expanded(
               child: ImageGrid(
@@ -869,6 +878,75 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   }
 }
 
+
+
+
+class _OcrUnavailableCard extends StatelessWidget {
+  const _OcrUnavailableCard({
+    required this.isRunning,
+    required this.enabled,
+    required this.onRunOcr,
+  });
+
+  final bool isRunning;
+  final bool enabled;
+  final VoidCallback onRunOcr;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.surfaceLight),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.text_snippet_outlined,
+            color: AppTheme.primary,
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Teks OCR belum tersedia',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Jalankan OCR dari foto dokumen ini tanpa memindai ulang.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppTheme.textSecondary,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonalIcon(
+            onPressed: enabled && !isRunning ? onRunOcr : null,
+            icon: isRunning
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.document_scanner_outlined, size: 18),
+            label: Text(isRunning ? 'Memproses' : 'Jalankan OCR'),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _OcrPreviewCard extends StatelessWidget {
   const _OcrPreviewCard({
