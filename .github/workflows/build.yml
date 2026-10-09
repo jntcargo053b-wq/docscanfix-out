@@ -92,14 +92,14 @@ jobs:
       # Pull requests remain validation/debug-only.
       - name: Build Release APK
         if: github.event_name != 'pull_request'
-        run: flutter build apk --release --split-per-abi --verbose
+        run: flutter build apk --release --verbose
 
       - name: Upload Release APKs
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: build/app/outputs/flutter-apk/*.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
       # A published GitHub Release still requires pushing a version tag (v*).
@@ -107,5 +107,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/*.apk
+          files: build/app/outputs/flutter-apk/app-release.apk
           generate_release_notes: true
