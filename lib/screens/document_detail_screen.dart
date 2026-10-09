@@ -731,45 +731,12 @@ class _DocumentDetailScreenState extends State<DocumentDetailScreen> {
   Future<void> _renameDocument() async {
     if (_isSharing || _isExportingPdf) return;
 
-    final controller = TextEditingController(text: _doc.title);
+    // The dialog owns its TextEditingController. Do not dispose a controller
+    // while the closing dialog route may still have its TextField mounted.
     final newTitle = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Ganti nama dokumen'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 120,
-          textInputAction: TextInputAction.done,
-          decoration: const InputDecoration(
-            labelText: 'Nama dokumen',
-            hintText: 'Masukkan nama dokumen',
-          ),
-          onSubmitted: (value) {
-            final title = value.trim();
-            if (title.isNotEmpty) {
-              Navigator.of(dialogContext).pop(title);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final title = controller.text.trim();
-              if (title.isNotEmpty) {
-                Navigator.of(dialogContext).pop(title);
-              }
-            },
-            child: const Text('Simpan'),
-          ),
-        ],
-      ),
+      builder: (_) => _RenameDocumentDialog(initialTitle: _doc.title),
     );
-    controller.dispose();
 
     if (newTitle == null || !mounted || newTitle == _doc.title) return;
 
@@ -1073,3 +1040,65 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
     );
   }
 }
+
+/// Owns the text controller for the rename route, so the controller is only
+/// disposed when the dialog widget itself is removed from the widget tree.
+class _RenameDocumentDialog extends StatefulWidget {
+  const _RenameDocumentDialog({required this.initialTitle});
+
+  final String initialTitle;
+
+  @override
+  State<_RenameDocumentDialog> createState() => _RenameDocumentDialogState();
+}
+
+class _RenameDocumentDialogState extends State<_RenameDocumentDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialTitle);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final title = _controller.text.trim();
+    if (title.isEmpty) return;
+    Navigator.of(context).pop(title);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Ganti nama dokumen'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 120,
+        textInputAction: TextInputAction.done,
+        decoration: const InputDecoration(
+          labelText: 'Nama dokumen',
+          hintText: 'Masukkan nama dokumen',
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Batal'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Simpan'),
+        ),
+      ],
+    );
+  }
+}
+
