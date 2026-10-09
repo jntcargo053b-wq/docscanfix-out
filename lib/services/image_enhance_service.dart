@@ -864,8 +864,10 @@ class ImageEnhanceService {
   double _horizontalProjectionScore(img.Image source, double angle) {
     final rotated = angle == 0 ? source : img.copyRotate(source, angle: angle);
     final rowCounts = List<int>.filled(rotated.height, 0);
-    // Sample every second pixel to keep the angle search inexpensive.
-    for (var y = 0; y < rotated.height; y += 2) {
+    // Sample every row and every second column. Every row must be
+    // represented: skipping rows here would compare populated rows with
+    // zero-filled rows and bias the score toward the wrong angle.
+    for (var y = 0; y < rotated.height; y++) {
       for (var x = 0; x < rotated.width; x += 2) {
         if (img.getLuminance(rotated.getPixel(x, y)) < 180) {
           rowCounts[y]++;
@@ -873,7 +875,7 @@ class ImageEnhanceService {
       }
     }
     var score = 0.0;
-    for (var y = 1; y < rowCounts.length; y += 2) {
+    for (var y = 1; y < rowCounts.length; y++) {
       final difference = rowCounts[y] - rowCounts[y - 1];
       score += difference * difference;
     }
