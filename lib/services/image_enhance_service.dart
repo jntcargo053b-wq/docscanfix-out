@@ -27,14 +27,20 @@ Future<String> _thumbnailIsolate(String imagePath) async {
   return svc._processThumbnail(imagePath);
 }
 
-Future<String> _prepareForOcrIsolate(String imagePath) async {
+Future<String> _prepareForOcrIsolate(_OcrPrepareParams params) async {
   final svc = ImageEnhanceService();
-  return svc._processPrepareForOcr(imagePath);
+  return svc._processPrepareForOcr(
+    params.imagePath,
+    tempDirectoryPath: params.tempDirectoryPath,
+  );
 }
 
-Future<String> _prepareForOcrEnhancedIsolate(String imagePath) async {
+Future<String> _prepareForOcrEnhancedIsolate(_OcrPrepareParams params) async {
   final svc = ImageEnhanceService();
-  return svc._processPrepareForOcrEnhanced(imagePath);
+  return svc._processPrepareForOcrEnhanced(
+    params.imagePath,
+    tempDirectoryPath: params.tempDirectoryPath,
+  );
 }
 
 Future<String> _prepareForPdfIsolate(String imagePath) async {
@@ -127,6 +133,15 @@ class _CompressParams {
   _CompressParams(this.imagePath, this.maxDimension, this.quality);
 }
 
+// Pass plugin-derived paths from the root isolate. Calling path_provider
+// inside compute() requires background messenger initialization and causes
+// BackgroundIsolateBinaryMessenger.instance errors on Android.
+class _OcrPrepareParams {
+  final String imagePath;
+  final String tempDirectoryPath;
+  const _OcrPrepareParams(this.imagePath, this.tempDirectoryPath);
+}
+
 class _CropParams {
   final String imagePath;
   final double left, top, right, bottom;
@@ -173,13 +188,23 @@ class ImageEnhanceService {
   ///
   /// Batas 2048px mempertahankan lebih banyak detail karakter kecil.
   /// Grayscale tetap dipakai untuk menghemat memori. Dijalankan di isolate.
-  Future<String> prepareForOcr(String imagePath) =>
-      compute(_prepareForOcrIsolate, imagePath);
+  Future<String> prepareForOcr(String imagePath) async {
+    final tempDirectoryPath = (await getTemporaryDirectory()).path;
+    return compute(
+      _prepareForOcrIsolate,
+      _OcrPrepareParams(imagePath, tempDirectoryPath),
+    );
+  }
 
   /// Fallback OCR preprocessing for difficult photos. Kept separate from
   /// the primary path so good photos never pay for aggressive enhancement.
-  Future<String> prepareForOcrEnhanced(String imagePath) =>
-      compute(_prepareForOcrEnhancedIsolate, imagePath);
+  Future<String> prepareForOcrEnhanced(String imagePath) async {
+    final tempDirectoryPath = (await getTemporaryDirectory()).path;
+    return compute(
+      _prepareForOcrEnhancedIsolate,
+      _OcrPrepareParams(imagePath, tempDirectoryPath),
+    );
+  }
 
   /// Resize + kompres sebelum masuk PDF pipeline.
   ///
@@ -754,7 +779,10 @@ class ImageEnhanceService {
   /// sharpening ringan, lalu binarisasi Otsu setelah resize/grayscale.
   /// Karena hanya dipakai ketika OCR utama kosong, preprocessing agresif
   /// tidak dapat merusak hasil OCR yang sudah berhasil.
-  Future<String> _processPrepareForOcrEnhanced(String imagePath) async {
+  Future<String> _processPrepareForOcrEnhanced(
+    String imagePath, {
+    required String tempDirectoryPath,
+  }) async {
     final bytes = await File(imagePath).readAsBytes();
     img.Image? image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
@@ -778,7 +806,12 @@ class ImageEnhanceService {
     );
     image = _binarizeOtsu(image);
 
-    return _saveTempNamed(image, 'ocr_enhanced', quality: 95);
+    return _saveTempNamed(
+      image,
+      'ocr_enhanced',
+      quality: 95,
+      directoryPath: tempDirectoryPath,
+    );
   }
 
   img.Image _binarizeOtsu(img.Image image) {
@@ -827,7 +860,10 @@ class ImageEnhanceService {
 
   /// Resize ke max 2048px + konversi grayscale untuk OCR.
   /// Grayscale hemat ~⅓ memori dan tidak menurunkan akurasi ML Kit.
-  Future<String> _processPrepareForOcr(String imagePath) async {
+  Future<String> _processPrepareForOcr(
+    String imagePath, {
+    required String tempDirectoryPath,
+  }) async {
     final bytes = await File(imagePath).readAsBytes();
     img.Image? image = img.decodeImage(bytes);
     if (image == null) throw Exception('Gagal decode gambar: $imagePath');
@@ -849,7 +885,12 @@ class ImageEnhanceService {
     // Grayscale — ML Kit teks tidak butuh warna
     image = img.grayscale(image);
 
-    return _saveTempNamed(image, 'ocr_prep', quality: 95);
+    return _saveTempNamed(
+      image,
+      'ocr_prep',
+      quality: 95,
+      directoryPath: tempDirectoryPath,
+    );
   }
 
   /// Resize ke max 1920px + kompres ke quality 85 sebelum masuk PDF pipeline.
@@ -872,11 +913,15 @@ class ImageEnhanceService {
   }
 
   /// Simpan ke temp dengan prefix nama tertentu.
-  Future<String> _saveTempNamed(img.Image image, String prefix,
-      {int quality = 92}) async {
-    final dir = await getTemporaryDirectory();
+  Future<String> _saveTempNamed(
+    img.Image image,
+    String prefix, {
+    int quality = 92,
+    String? directoryPath,
+  }) async {
+    final dirPath = directoryPath ?? (await getTemporaryDirectory()).path;
     final name = '${prefix}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-    final outPath = '${dir.path}/$name';
+    final outPath = '${dirPath}/$name';
     await File(outPath).writeAsBytes(
       Uint8List.fromList(img.encodeJpg(image, quality: quality)),
     );
