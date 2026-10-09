@@ -118,6 +118,29 @@ void main() {
       expect(renamed.pdfPath, isNull);
     });
 
+    test('can clear stale aggregate OCR text after page changes', () {
+      final original = ScannedDocument(
+        id: 'doc-007',
+        title: 'OCR document',
+        imagePaths: const ['/docs/a.jpg', '/docs/b.jpg'],
+        pageTexts: const ['Text A', 'Text B'],
+        extractedText: 'Old aggregate order',
+        createdAt: DateTime.utc(2026),
+      );
+
+      final updated = original.copyWith(
+        pageTexts: const ['Text B', 'Text A'],
+        extractedText: '--- Halaman 1 ---\\nText B\\n\\n--- Halaman 2 ---\\nText A',
+      );
+
+      expect(updated.extractedText, contains('Text B'));
+      expect(updated.extractedText!.indexOf('Text B'),
+          lessThan(updated.extractedText!.indexOf('Text A')));
+
+      final cleared = updated.copyWith(clearExtractedText: true);
+      expect(cleared.extractedText, isNull);
+    });
+
     test('can clear cached PDF and thumbnail paths', () {
       final original = ScannedDocument(
         id: 'doc-004',
