@@ -126,13 +126,14 @@ class ScannedDocument {
     String? thumbnailPath,
     bool clearPdfPath = false,
     bool clearThumbnailPath = false,
+    bool clearExtractedText = false,
   }) =>
       ScannedDocument(
         id: id ?? this.id,
         title: title ?? this.title,
         imagePaths: imagePaths ?? this.imagePaths,
         pageTexts: pageTexts ?? this.pageTexts,
-        extractedText: extractedText ?? this.extractedText,
+        extractedText: clearExtractedText ? null : (extractedText ?? this.extractedText),
         createdAt: createdAt ?? this.createdAt,
         pdfPath: clearPdfPath ? null : (pdfPath ?? this.pdfPath),
         thumbnailPath:
