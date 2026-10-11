@@ -357,15 +357,24 @@ class DocumentStorageService {
   }) async {
     return _withMutationLock<void>(() async {
       final docs = await loadDocuments();
-    final idx = docs.indexWhere((d) => d.id == document.id);
-    if (idx == -1) return;
+      final idx = docs.indexWhere((d) => d.id == document.id);
+      if (idx == -1) return;
 
-    // Modify cache in-place
-    _cachedDocuments![idx] = document;
-    _cacheValid = true;
+      // Keep a stable pre-update snapshot. Immediate writes are used for
+      // critical results such as a newly generated PDF; if persistence fails,
+      // the in-memory cache must not pretend that the update was committed.
+      final previousDocuments = List<ScannedDocument>.from(docs);
+      _cachedDocuments![idx] = document;
+      _cacheValid = true;
 
       if (immediate) {
-        await _saveLocked();
+        try {
+          await _saveLocked();
+        } catch (_) {
+          _cachedDocuments = previousDocuments;
+          _cacheValid = true;
+          rethrow;
+        }
       } else {
         await _deferredSaveDocuments();
       }
