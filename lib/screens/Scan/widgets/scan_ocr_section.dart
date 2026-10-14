@@ -17,6 +17,9 @@ class ScanOcrSection extends StatelessWidget {
     required this.pageStatuses,
     required this.progress,
     required this.onRetryPage,
+    this.aiReviewEnabled = false,
+    this.isAiReviewRunning = false,
+    this.onAiReview,
   });
 
   final bool isRunning;
@@ -25,6 +28,9 @@ class ScanOcrSection extends StatelessWidget {
   final List<OcrPageStatus> pageStatuses;
   final double progress;
   final ValueChanged<int> onRetryPage;
+  final bool aiReviewEnabled;
+  final bool isAiReviewRunning;
+  final Future<void> Function()? onAiReview;
 
   @override
   Widget build(BuildContext context) {
@@ -44,6 +50,9 @@ class ScanOcrSection extends StatelessWidget {
         onRerun: onRerun,
         pageStatuses: pageStatuses,
         onRetryPage: onRetryPage,
+        aiReviewEnabled: aiReviewEnabled,
+        isAiReviewRunning: isAiReviewRunning,
+        onAiReview: onAiReview,
       );
     }
     return const SizedBox.shrink();
@@ -83,12 +92,18 @@ class _OcrResultCard extends StatelessWidget {
     required this.onRerun,
     required this.pageStatuses,
     required this.onRetryPage,
+    required this.aiReviewEnabled,
+    required this.isAiReviewRunning,
+    required this.onAiReview,
   });
 
   final String text;
   final VoidCallback onRerun;
   final List<OcrPageStatus> pageStatuses;
   final ValueChanged<int> onRetryPage;
+  final bool aiReviewEnabled;
+  final bool isAiReviewRunning;
+  final Future<void> Function()? onAiReview;
 
   Future<void> _copyText(BuildContext context) async {
     await Clipboard.setData(ClipboardData(text: text));
@@ -210,6 +225,14 @@ class _OcrResultCard extends StatelessWidget {
                 icon: const Icon(Icons.copy_outlined, size: 17),
                 label: const Text('Salin'),
               ),
+              if (aiReviewEnabled && onAiReview != null)
+                TextButton.icon(
+                  onPressed: isAiReviewRunning ? null : onAiReview,
+                  icon: isAiReviewRunning
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_awesome_outlined, size: 17),
+                  label: Text(isAiReviewRunning ? 'Meninjau…' : 'Tinjau dengan AI'),
+                ),
             ],
           ),
         ],
