@@ -19,6 +19,7 @@ class ScanBody extends StatelessWidget {
     required this.onShare,
     required this.onExportPdf,
     required this.onScanBarcode,
+    required this.onAiReview,
   });
 
   final ScanController controller;
@@ -27,6 +28,7 @@ class ScanBody extends StatelessWidget {
   final VoidCallback onShare;
   final VoidCallback onExportPdf;
   final Future<void> Function() onScanBarcode;
+  final Future<void> Function() onAiReview;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +58,9 @@ class ScanBody extends StatelessWidget {
             pageStatuses: controller.ocrPageStatuses,
             progress: controller.ocrProgress,
             onRetryPage: controller.rerunOcrPage,
+            aiReviewEnabled: controller.isAiReviewConfigured,
+            isAiReviewRunning: controller.isAiReviewRunning,
+            onAiReview: onAiReview,
           ),
           const Gap(24),
           ScanActionButtons(
