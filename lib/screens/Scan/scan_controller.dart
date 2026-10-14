@@ -1239,6 +1239,7 @@ class ScanController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _aiOcrReviewService.dispose();
     titleController.dispose();
     _clearPreparedCache();
 
