@@ -7,6 +7,7 @@ Aplikasi Android untuk memindai dokumen dengan deteksi tepi/crop, OCR, PDF, peny
 - 📷 **Scan Dokumen** — scanner native dengan deteksi tepi dan crop.
 - 📑 **Multi-page Review** — tambah, hapus, dan tinjau halaman sebelum disimpan.
 - 🔤 **OCR** — ekstraksi teks menggunakan Google ML Kit.
+- ✨ **Tinjauan teks AI opsional** — mengirim teks OCR (bukan foto) ke endpoint backend tepercaya untuk mendapat saran perbaikan; hasil asli tidak otomatis diganti.
 - 📄 **Export PDF** — generate PDF dari hasil scan.
 - 🖼️ **Image Processing** — resize/enhance untuk kebutuhan OCR/PDF.
 - 💾 **Local Storage** — metadata dan halaman dokumen dikelola oleh storage service.
@@ -104,6 +105,20 @@ flutter build apk --release
 | `open_file` | ^3.5.10 | Membuka file eksternal |
 | `flutter_animate` | ^4.5.2 | Animasi UI |
 | `gap` | ^3.0.1 | Spacing |
+
+## Integrasi AI OCR opsional (Hugging Face)
+
+Fitur **Tinjau dengan AI** adalah lapisan tambahan; OCR Google ML Kit, penyimpanan, barcode, dan ekspor PDF tetap berjalan tanpa fitur ini. Untuk mencegah token rahasia tertanam di APK, aplikasi **tidak** memanggil Hugging Face dengan token langsung. Konfigurasikan endpoint backend milik Anda ketika build:
+
+```bash
+flutter build apk --release --dart-define=DOCSCAN_AI_OCR_ENDPOINT=https://YOUR-TRUSTED-BACKEND.example/api/ocr-review
+```
+
+Ganti URL contoh dengan endpoint HTTPS yang Anda kendalikan. Jika variabel tidak diatur, tombol AI tidak ditampilkan. Aplikasi mengirim `POST` JSON dengan bentuk `{"text":"...","language":"id","task":"review_ocr_text"}`. Backend harus memvalidasi permintaan, menyimpan token Hugging Face sebagai secret di server, dan mengembalikan JSON `{"text":"saran hasil tinjauan"}`. Timeout klien dibatasi; respons kosong/tidak valid dianggap gagal.
+
+Sebelum mengirim, aplikasi meminta persetujuan setiap kali dan menjelaskan bahwa teks OCR akan dikirim ke endpoint tersebut. Foto, file gambar, database, dan metadata dokumen tidak dikirim oleh fitur ini. Hasil AI hanya ditampilkan sebagai saran yang dapat disalin; **teks OCR asli dan data yang disimpan tidak diubah**. Tinjau hasil AI sebelum menggunakannya karena model dapat mengubah angka atau menambahkan informasi yang keliru. Jangan gunakan endpoint yang tidak dipercaya untuk dokumen sensitif.
+
+Endpoint ini adalah kontrak backend aplikasi, bukan URL Hugging Face langsung. Backend perlu meneruskan tugas ke model Hugging Face yang dipilih dan diuji, dengan instruksi agar tidak mengarang atau mengubah angka. Uji lisensi, bahasa Indonesia, akurasi, latensi, dan biaya model sebelum produksi.
 
 ## Android
 
