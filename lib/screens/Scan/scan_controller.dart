@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../services/scanner_service.dart';
 import '../../services/ocr_service.dart';
+import '../../services/ai_ocr_review_service.dart';
 import '../../services/pdf_service.dart';
 import '../../services/document_storage_service.dart';
 import '../../services/image_enhance_service.dart';
@@ -48,6 +49,7 @@ class ScanController extends ChangeNotifier {
   final PdfService _pdfService;
   final DocumentStorageService _storageService;
   final ImageEnhanceService _enhanceService;
+  final AiOcrReviewService _aiOcrReviewService;
 
   ScanController({
     ScannerService? scannerService,
@@ -55,11 +57,13 @@ class ScanController extends ChangeNotifier {
     PdfService? pdfService,
     DocumentStorageService? storageService,
     ImageEnhanceService? enhanceService,
+    AiOcrReviewService? aiOcrReviewService,
   })  : _scannerService = scannerService ?? ScannerService(),
         _ocrService = ocrService ?? OcrService(),
         _pdfService = pdfService ?? PdfService(),
         _storageService = storageService ?? DocumentStorageService(),
-        _enhanceService = enhanceService ?? ImageEnhanceService();
+        _enhanceService = enhanceService ?? ImageEnhanceService(),
+        _aiOcrReviewService = aiOcrReviewService ?? AiOcrReviewService();
 
   // ─── State ──────────────────────────────────────────────────────────
   // BUG (ScanController share lifecycle): shareImages() (dan method async
@@ -80,6 +84,7 @@ class ScanController extends ChangeNotifier {
   List<String> _imagePaths = [];
   String? _extractedText;
   bool _isOcrRunning = false;
+  bool _isAiReviewRunning = false;
   List<OcrPageStatus> _ocrPageStatuses = <OcrPageStatus>[];
   List<String> _ocrPageTexts = <String>[];
   List<String?> _ocrPageErrors = <String?>[];
@@ -117,6 +122,8 @@ class ScanController extends ChangeNotifier {
   List<String> get imagePaths => List.unmodifiable(_imagePaths);
   String? get extractedText => _extractedText;
   bool get isOcrRunning => _isOcrRunning;
+  bool get isAiReviewRunning => _isAiReviewRunning;
+  bool get isAiReviewConfigured => _aiOcrReviewService.isConfigured;
   List<OcrPageStatus> get ocrPageStatuses => List.unmodifiable(_ocrPageStatuses);
   double get ocrProgress {
     if (_ocrPageStatuses.isEmpty) return 0;
@@ -131,6 +138,37 @@ class ScanController extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
 
   // ─── Public Actions ───────────────────────────────────────────────────────
+
+  /// Requests an optional AI review of OCR text. Only text is sent; image files
+  /// are never uploaded, and the saved OCR result is not overwritten.
+  Future<String?> reviewOcrWithAi() async {
+    final sourceText = _extractedText?.trim() ?? '';
+    if (sourceText.isEmpty) {
+      _errorMessage = 'Belum ada teks OCR untuk ditinjau oleh AI.';
+      notifyListeners();
+      return null;
+    }
+    if (!_aiOcrReviewService.isConfigured) {
+      _errorMessage = 'AI belum dikonfigurasi. Atur DOCSCAN_AI_OCR_ENDPOINT saat build.';
+      notifyListeners();
+      return null;
+    }
+    if (_isAiReviewRunning || _disposed) return null;
+    _isAiReviewRunning = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final suggestion = await _aiOcrReviewService.reviewText(sourceText);
+      if (_disposed) return null;
+      return suggestion;
+    } catch (_) {
+      if (!_disposed) _errorMessage = 'Tinjauan AI gagal. Periksa koneksi dan konfigurasi server, lalu coba lagi.';
+      return null;
+    } finally {
+      _isAiReviewRunning = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
 
   Future<void> startScan(BuildContext context) async {
     // FIX (P1 — Tambah halaman bisa dipanggil bersamaan): sebelumnya
