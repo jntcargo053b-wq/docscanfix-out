@@ -46,7 +46,7 @@ class AiOcrReviewService {
         .timeout(_timeout);
 
     if (response.statusCode != 200) {
-      throw HttpException('AI endpoint mengembalikan status ' + response.statusCode.toString() + '.');
+      throw HttpException('AI endpoint mengembalikan status ${response.statusCode}.');
     }
     final decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is! Map<String, dynamic> || decoded['text'] is! String) {
