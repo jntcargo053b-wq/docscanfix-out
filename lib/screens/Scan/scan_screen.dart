@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 import '../../theme/app_theme.dart';
@@ -188,9 +189,11 @@ class _ScanScreenState extends State<ScanScreen> {
             onPressed: () async {
               await Clipboard.setData(ClipboardData(text: suggestion));
               if (dialogContext.mounted) Navigator.pop(dialogContext);
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Saran AI disalin. Teks OCR asli tidak berubah.')),
-              );
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Saran AI disalin. Teks OCR asli tidak berubah.')),
+                );
+              }
             },
             icon: const Icon(Icons.copy),
             label: const Text('Salin saran'),
