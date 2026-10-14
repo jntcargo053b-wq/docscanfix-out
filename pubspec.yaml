@@ -21,6 +21,8 @@ dependencies:
 
   # OCR
   google_mlkit_text_recognition: ^0.13.0
+  # Optional AI text review; credentials stay on a trusted backend.
+  http: ^1.2.2
 
   # PDF
   pdf: ^3.11.0
