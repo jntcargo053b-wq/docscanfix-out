@@ -146,6 +146,61 @@ class _ScanScreenState extends State<ScanScreen> {
     // startScan tidak melakukan Navigator call — tidak perlu cek mounted setelah ini
   }
 
+  Future<void> _handleAiReview() async {
+    if (!mounted || _controller.isAiReviewRunning) return;
+    final consent = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Tinjau teks dengan AI?'),
+        content: const Text(
+          'Hanya teks hasil OCR yang akan dikirim ke endpoint AI yang dikonfigurasi. '
+          'Foto dan database tidak dikirim. Jangan lanjutkan jika teks berisi informasi '
+          'sensitif atau Anda tidak mempercayai server tersebut. Hasil AI adalah saran '
+          'dan tidak akan mengganti teks OCR asli yang disimpan.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Kirim teks')),
+        ],
+      ),
+    );
+    if (!mounted || consent != true) return;
+    final suggestion = await _controller.reviewOcrWithAi();
+    if (!mounted) return;
+    if (suggestion == null || suggestion.trim().isEmpty) {
+      final error = _controller.errorMessage;
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        _controller.clearError();
+      }
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Saran AI — belum diterapkan'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(child: SelectableText(suggestion)),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: suggestion));
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Saran AI disalin. Teks OCR asli tidak berubah.')),
+              );
+            },
+            icon: const Icon(Icons.copy),
+            label: const Text('Salin saran'),
+          ),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Tutup')),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleScanBarcode() async {
     if (!mounted) return;
     final result = await Navigator.push<String>(
@@ -225,6 +280,7 @@ class _ScanScreenState extends State<ScanScreen> {
       onShare: _handleShare,
       onExportPdf: _handleExportPdf,
       onScanBarcode: _handleScanBarcode,
+      onAiReview: _handleAiReview,
     );
   }
 }
