@@ -623,7 +623,7 @@ class ScanController extends ChangeNotifier {
         title: title,
         imagePaths: preparedPaths,
         pageTexts: _ocrPageTexts,
-        includeTextLayer: _ocrPageTexts.length == preparedPaths.length,
+        includeTextLayer: _ocrEnabled && _ocrPageTexts.length == preparedPaths.length,
         skipDownsize: true,
         temporaryOutput: true,
       );
