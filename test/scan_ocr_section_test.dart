@@ -47,8 +47,8 @@ void main() {
         isRunning: false,
         extractedText: '',
         pageStatuses: const [
-          OcrPageStatus.success,
-          OcrPageStatus.success,
+          OcrPageStatus.noText,
+          OcrPageStatus.noText,
         ],
         progress: 1,
       ),
@@ -59,8 +59,27 @@ void main() {
       find.text('OCR selesai, tetapi tidak ada teks yang terdeteksi.'),
       findsOneWidget,
     );
-    expect(find.text('Hal 1 • OK'), findsOneWidget);
-    expect(find.text('Hal 2 • OK'), findsOneWidget);
+    expect(find.text('Hal 1 • kosong'), findsOneWidget);
+    expect(find.text('Hal 2 • kosong'), findsOneWidget);
+  });
+
+  testWidgets('labels pages with no detected text and allows retry', (tester) async {
+    int? retriedPage;
+
+    await tester.pumpWidget(
+      buildSection(
+        isRunning: false,
+        extractedText: '',
+        pageStatuses: const [OcrPageStatus.noText],
+        progress: 1,
+        onRetryPage: (index) => retriedPage = index,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('Hal 1 • kosong'), findsOneWidget);
+    await tester.tap(find.text('Hal 1 • kosong'));
+    expect(retriedPage, 0);
   });
 
   testWidgets('allows retry for failed OCR pages', (tester) async {
