@@ -921,7 +921,17 @@ class ScanController extends ChangeNotifier {
           preparedPaths.add(_preparedForOcrCache[originalPath]!);
         } else {
           final prepared = await _enhanceService.prepareForOcr(originalPath);
-          if (runId != _ocrRunId) return;
+
+          // The preprocessing isolate can finish after this OCR run has been
+          // invalidated by a newer run, page edit/removal, photo-only switch,
+          // or controller disposal. In that case the returned temp file has
+          // not yet been registered in _sessionTempFiles, so dispose() cannot
+          // clean it up. Remove this stale output immediately before returning.
+          if (_disposed || runId != _ocrRunId) {
+            await _scannerService.cleanupFiles([prepared]);
+            return;
+          }
+
           preparedPaths.add(prepared);
           _preparedForOcrCache[originalPath] = prepared;
           _sessionTempFiles.add(prepared);
