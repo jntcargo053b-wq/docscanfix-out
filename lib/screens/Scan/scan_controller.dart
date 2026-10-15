@@ -18,7 +18,7 @@ import '../../models/scanned_document.dart';
 
 enum ScanStatus { idle, scanning, ready, processing, done, error }
 
-enum OcrPageStatus { idle, running, success, failed }
+enum OcrPageStatus { idle, running, success, noText, failed }
 
 // PERF FIX (review keseluruhan — sama seperti ScannerService.
 // _hashFilesForDedupe): _hashAll()/_dedupeAgainstHashes() di bawah dulunya
@@ -793,6 +793,13 @@ class ScanController extends ChangeNotifier {
     notifyListeners();
   }
 
+  OcrPageStatus _statusForOcrResult(OcrPageResult result) {
+    if (!result.success) return OcrPageStatus.failed;
+    return result.text.trim().isEmpty
+        ? OcrPageStatus.noText
+        : OcrPageStatus.success;
+  }
+
   /// Run OCR with caching to avoid reprocessing images
   ///
   /// BUG (race condition): _runOcr() dipanggil fire-and-forget (tanpa
@@ -888,9 +895,7 @@ class ScanController extends ChangeNotifier {
           if (runId != _ocrRunId || index >= _ocrPageStatuses.length) return;
           _ocrPageTexts[index] = result.text;
           _ocrPageErrors[index] = result.errorMessage;
-          _ocrPageStatuses[index] = result.success
-              ? OcrPageStatus.success
-              : OcrPageStatus.failed;
+          _ocrPageStatuses[index] = _statusForOcrResult(result);
           notifyListeners();
         },
       );
@@ -936,9 +941,7 @@ class ScanController extends ChangeNotifier {
               if (pageIndex >= _ocrPageStatuses.length) return;
               _ocrPageTexts[pageIndex] = result.text;
               _ocrPageErrors[pageIndex] = result.errorMessage;
-              _ocrPageStatuses[pageIndex] = result.success
-                  ? OcrPageStatus.success
-                  : OcrPageStatus.failed;
+              _ocrPageStatuses[pageIndex] = _statusForOcrResult(result);
               notifyListeners();
             },
           );
@@ -968,9 +971,7 @@ class ScanController extends ChangeNotifier {
                 if (pageIndex >= _ocrPageStatuses.length) return;
                 _ocrPageTexts[pageIndex] = result.text;
                 _ocrPageErrors[pageIndex] = result.errorMessage;
-                _ocrPageStatuses[pageIndex] = result.success
-                    ? OcrPageStatus.success
-                    : OcrPageStatus.failed;
+                _ocrPageStatuses[pageIndex] = _statusForOcrResult(result);
                 notifyListeners();
               },
             );
@@ -1002,9 +1003,7 @@ class ScanController extends ChangeNotifier {
                   if (pageIndex >= _ocrPageStatuses.length) return;
                   _ocrPageTexts[pageIndex] = result.text;
                   _ocrPageErrors[pageIndex] = result.errorMessage;
-                  _ocrPageStatuses[pageIndex] = result.success
-                      ? OcrPageStatus.success
-                      : OcrPageStatus.failed;
+                  _ocrPageStatuses[pageIndex] = _statusForOcrResult(result);
                   notifyListeners();
                 },
               );
@@ -1083,9 +1082,7 @@ class ScanController extends ChangeNotifier {
             errorMessage: 'OCR gagal diproses.',
           );
       _ocrPageTexts[index] = result.text;
-      _ocrPageStatuses[index] = result.success
-          ? OcrPageStatus.success
-          : OcrPageStatus.failed;
+      _ocrPageStatuses[index] = _statusForOcrResult(result);
       _ocrPageErrors[index] = result.errorMessage;
       _rebuildExtractedText();
     } catch (_) {
