@@ -49,6 +49,36 @@ class ScanBody extends StatelessWidget {
             onEdit: (index) => _handleEdit(context, index),
           ),
           const Gap(16),
+          if (!controller.isOcrEnabled && controller.hasImages) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.photo_outlined),
+                    const Gap(10),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Mode Foto saja', style: TextStyle(fontWeight: FontWeight.w700)),
+                          Text('OCR tidak berjalan otomatis. Foto dapat disimpan atau dibagikan seperti biasa.'),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: controller.isProcessing || controller.isOcrRunning
+                          ? null
+                          : () => controller.enableOcrAndRun(),
+                      child: const Text('Jalankan OCR'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Gap(12),
+          ],
           ScanOcrSection(
             isRunning: controller.isOcrRunning,
             extractedText: controller.extractedText,
