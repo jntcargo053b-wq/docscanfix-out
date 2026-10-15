@@ -34,7 +34,7 @@ class ScanOcrSection extends StatelessWidget {
     final hasCompletedOcr = pageStatuses.isNotEmpty &&
         pageStatuses.every(
           (s) =>
-              s == OcrPageStatus.success || s == OcrPageStatus.failed,
+              s == OcrPageStatus.success || s == OcrPageStatus.noText || s == OcrPageStatus.failed,
         );
     if ((extractedText != null && extractedText!.trim().isNotEmpty) ||
         hasFailedPage ||
@@ -57,7 +57,7 @@ class _OcrLoadingRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final completed = pageStatuses.where((s) => s == OcrPageStatus.success || s == OcrPageStatus.failed).length;
+    final completed = pageStatuses.where((s) => s == OcrPageStatus.success || s == OcrPageStatus.noText || s == OcrPageStatus.failed).length;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.surfaceLight)),
@@ -187,9 +187,9 @@ class _OcrResultCard extends StatelessWidget {
               children: [
                 for (var i = 0; i < pageStatuses.length; i++)
                   ActionChip(
-                    label: Text('Hal ${i + 1} • ${pageStatuses[i] == OcrPageStatus.failed ? 'ulang' : pageStatuses[i] == OcrPageStatus.success ? 'OK' : '…'}', style: const TextStyle(fontSize: 10)),
-                    avatar: Icon(pageStatuses[i] == OcrPageStatus.failed ? Icons.refresh : pageStatuses[i] == OcrPageStatus.success ? Icons.check : Icons.hourglass_top, size: 14),
-                    onPressed: pageStatuses[i] == OcrPageStatus.failed ? () => onRetryPage(i) : null,
+                    label: Text('Hal ${i + 1} • ${pageStatuses[i] == OcrPageStatus.failed ? 'ulang' : pageStatuses[i] == OcrPageStatus.noText ? 'kosong' : pageStatuses[i] == OcrPageStatus.success ? 'OK' : '…'}', style: const TextStyle(fontSize: 10)),
+                    avatar: Icon(pageStatuses[i] == OcrPageStatus.failed ? Icons.refresh : pageStatuses[i] == OcrPageStatus.noText ? Icons.text_fields : pageStatuses[i] == OcrPageStatus.success ? Icons.check : Icons.hourglass_top, size: 14),
+                    onPressed: pageStatuses[i] == OcrPageStatus.failed || pageStatuses[i] == OcrPageStatus.noText ? () => onRetryPage(i) : null,
                     visualDensity: VisualDensity.compact,
                   ),
               ],
