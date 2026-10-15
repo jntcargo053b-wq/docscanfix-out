@@ -120,7 +120,7 @@ class ScanController extends ChangeNotifier {
   List<OcrPageStatus> get ocrPageStatuses => List.unmodifiable(_ocrPageStatuses);
   double get ocrProgress {
     if (_ocrPageStatuses.isEmpty) return 0;
-    final completed = _ocrPageStatuses.where((s) => s == OcrPageStatus.success || s == OcrPageStatus.failed).length;
+    final completed = _ocrPageStatuses.where((s) => s == OcrPageStatus.success || s == OcrPageStatus.noText || s == OcrPageStatus.failed).length;
     return completed / _ocrPageStatuses.length;
   }
   int get ocrFailedPages => _ocrPageStatuses.where((s) => s == OcrPageStatus.failed).length;
