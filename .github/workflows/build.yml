@@ -67,7 +67,6 @@ jobs:
             "https://services.gradle.org/distributions/gradle-$gradle_version-bin.zip" \
             --output "$RUNNER_TEMP/gradle.zip"
           unzip -q "$RUNNER_TEMP/gradle.zip" -d "$RUNNER_TEMP"
-          # Flutter calls android/gradlew, which prefers GRADLE_HOME over PATH.
           echo "GRADLE_HOME=$RUNNER_TEMP/gradle-$gradle_version" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/gradle-$gradle_version/bin" >> "$GITHUB_PATH"
           export GRADLE_HOME="$RUNNER_TEMP/gradle-$gradle_version"
@@ -87,9 +86,29 @@ jobs:
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
 
-      # Build a release APK on branch pushes and manual runs too, so it is
-      # available as a workflow artifact without requiring a version tag.
-      # Pull requests remain validation/debug-only.
+      # Release APKs must use the same stable private key on every build.
+      # These secrets are required for branch pushes and manual release builds.
+      - name: Configure release signing from GitHub Secrets
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Required GitHub Actions secret $name is missing."
+              exit 1
+            fi
+          done
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+          test -s android/app/upload-keystore.jks
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=app/upload-keystore.jks\n' \
+            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" "$ANDROID_KEY_ALIAS" > android/key.properties
+
       - name: Build Release APK
         if: github.event_name != 'pull_request'
         run: flutter build apk --release --verbose
@@ -102,7 +121,6 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
-      # A published GitHub Release still requires pushing a version tag (v*).
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
