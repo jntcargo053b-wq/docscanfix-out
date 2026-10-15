@@ -13,6 +13,12 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode', '2')
 def flutterVersionName = localProperties.getProperty('flutter.versionName', '1.0.1')
 
@@ -39,12 +45,22 @@ android {
         versionName flutterVersionName
     }
 
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Ensure the CI artifact is signed and installable.
-            // This is a temporary fallback; a stable release keystore is required
-            // to update an existing installation signed with a different key.
-            signingConfig signingConfigs.debug
+            // CI creates key.properties from GitHub Actions Secrets.
+            // No permanent private key or password is stored in the repository.
+            signingConfig signingConfigs.release
             minifyEnabled false
             shrinkResources false
         }
