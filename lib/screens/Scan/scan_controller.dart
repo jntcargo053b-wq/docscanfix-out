@@ -80,6 +80,9 @@ class ScanController extends ChangeNotifier {
   List<String> _imagePaths = [];
   String? _extractedText;
   bool _isOcrRunning = false;
+  // OCR remains enabled by default for backwards compatibility. The scan
+  // screen can disable it for a photo-only session before opening the scanner.
+  bool _ocrEnabled = true;
   List<OcrPageStatus> _ocrPageStatuses = <OcrPageStatus>[];
   List<String> _ocrPageTexts = <String>[];
   List<String?> _ocrPageErrors = <String?>[];
@@ -117,6 +120,7 @@ class ScanController extends ChangeNotifier {
   List<String> get imagePaths => List.unmodifiable(_imagePaths);
   String? get extractedText => _extractedText;
   bool get isOcrRunning => _isOcrRunning;
+  bool get isOcrEnabled => _ocrEnabled;
   List<OcrPageStatus> get ocrPageStatuses => List.unmodifiable(_ocrPageStatuses);
   double get ocrProgress {
     if (_ocrPageStatuses.isEmpty) return 0;
@@ -131,6 +135,32 @@ class ScanController extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
 
   // ─── Public Actions ───────────────────────────────────────────────────────
+
+  /// Select whether this scan session should automatically recognize text.
+  /// Disabling OCR never deletes photos or changes the saved image format.
+  void setOcrEnabled(bool enabled) {
+    if (_disposed || _ocrEnabled == enabled) return;
+    _ocrEnabled = enabled;
+    if (!enabled) {
+      // Invalidate any in-flight OCR and discard only transient OCR state.
+      // The image paths and prepared PDF cache remain untouched.
+      _ocrRunId++;
+      _isOcrRunning = false;
+      _ocrFuture = null;
+      _extractedText = null;
+      _ocrPageStatuses = List<OcrPageStatus>.filled(_imagePaths.length, OcrPageStatus.idle);
+      _ocrPageTexts = List<String>.filled(_imagePaths.length, '');
+      _ocrPageErrors = List<String?>.filled(_imagePaths.length, null);
+    }
+    notifyListeners();
+  }
+
+  /// Explicit opt-in from the photo-only screen to run OCR on demand.
+  Future<void> enableOcrAndRun() async {
+    if (_disposed || _imagePaths.isEmpty) return;
+    setOcrEnabled(true);
+    await rerunOcr();
+  }
 
   Future<void> startScan(BuildContext context) async {
     // FIX (P1 — Tambah halaman bisa dipanggil bersamaan): sebelumnya
@@ -832,6 +862,16 @@ class ScanController extends ChangeNotifier {
   /// _ocrFuture; saveDocument() await Future itu (kalau sedang berjalan)
   /// SEBELUM membaca _extractedText untuk dibungkus ke ScannedDocument.
   Future<void> _runOcr() {
+    if (!_ocrEnabled) {
+      _ocrRunId++;
+      _isOcrRunning = false;
+      _extractedText = null;
+      _ocrPageStatuses = List<OcrPageStatus>.filled(_imagePaths.length, OcrPageStatus.idle);
+      _ocrPageTexts = List<String>.filled(_imagePaths.length, '');
+      _ocrPageErrors = List<String?>.filled(_imagePaths.length, null);
+      notifyListeners();
+      return Future<void>.value();
+    }
     if (_imagePaths.isEmpty) {
       _ocrPageStatuses = <OcrPageStatus>[];
       _ocrPageTexts = <String>[];
@@ -1122,6 +1162,7 @@ class ScanController extends ChangeNotifier {
   /// image conversion when the user only wants recognition repeated.
   Future<void> rerunOcr() async {
     if (_disposed || _imagePaths.isEmpty || _isOcrRunning) return;
+    _ocrEnabled = true; // Manual OCR is an explicit opt-in.
     _extractedText = null;
     notifyListeners();
     await _runOcr();
