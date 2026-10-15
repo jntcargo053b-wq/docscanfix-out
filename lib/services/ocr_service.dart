@@ -22,8 +22,9 @@ class OcrService {
 
   // Timeout per halaman — cegah hang pada gambar beresolusi sangat tinggi
   static const Duration _perPageTimeout = Duration(seconds: 15);
-  // Timeout keseluruhan dokumen multi-halaman
-  static const Duration _totalTimeout = Duration(seconds: 60);
+  // Budget dokumen mengikuti jumlah putaran worker, bukan batas tetap 60s.
+  // Dokumen panjang tidak otomatis melewatkan halaman setelah menit pertama;
+  // setiap halaman tetap dibatasi _perPageTimeout.
 
   // PERF FIX (OCR multi-halaman terasa lambat): extractTextFromImages()
   // sebelumnya proses halaman STRICT SEQUENTIAL — satu TextRecognizer
@@ -131,11 +132,8 @@ class OcrService {
         ? imagePaths.length
         : _poolSize;
     final requestedBudgetMs = _perPageTimeout.inMilliseconds *
-        ((imagePaths.length + _poolSize - 1) ~/ _poolSize);
-    final totalBudgetMs = requestedBudgetMs < _totalTimeout.inMilliseconds
-        ? requestedBudgetMs
-        : _totalTimeout.inMilliseconds;
-    final totalBudget = Duration(milliseconds: totalBudgetMs);
+        ((imagePaths.length + workerCount - 1) ~/ workerCount);
+    final totalBudget = Duration(milliseconds: requestedBudgetMs);
     final deadline = DateTime.now().add(totalBudget);
 
     Future<void> worker(int slot) async {
