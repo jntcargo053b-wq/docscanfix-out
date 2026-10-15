@@ -36,6 +36,36 @@ class _ScanScreenState extends State<ScanScreen> {
 
   Future<void> _initialScan() async {
     if (!mounted) return;
+    // Ask once per scan session. Photo + OCR stays the default path for users
+    // who choose it; photo-only avoids starting OCR and image preprocessing.
+    final ocrEnabled = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Pilih mode pemindaian'),
+        content: const Text(
+          'Pilih apakah teks perlu dikenali otomatis. Pilihan ini hanya berlaku '
+          'untuk sesi pemindaian saat ini.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Foto saja'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Foto + OCR'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+    if (ocrEnabled == null) {
+      Navigator.pop(context);
+      return;
+    }
+    _controller.setOcrEnabled(ocrEnabled);
     await _controller.startScan(context);
 
     if (!mounted) return;
