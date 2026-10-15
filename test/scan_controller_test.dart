@@ -21,6 +21,18 @@ void main() {
       expect(controller.extractedText, isNull);
     });
 
+    test('OCR can be disabled for a photo-only session and enabled on demand', () async {
+      controller.setOcrEnabled(false);
+
+      expect(controller.isOcrEnabled, isFalse);
+      expect(controller.isOcrRunning, isFalse);
+      expect(controller.extractedText, isNull);
+
+      controller.setOcrEnabled(true);
+
+      expect(controller.isOcrEnabled, isTrue);
+    });
+
     test('barcode title collapses whitespace and trims edges', () {
       controller.useBarcodeTitle('  INV-001\n  CUSTOMER   MALANG  ');
 
