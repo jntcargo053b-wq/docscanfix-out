@@ -810,6 +810,13 @@ class ImageEnhanceService {
       image = img.copyRotate(image, angle: deskewAngle);
     }
 
+    // Correct uneven illumination before global contrast and Otsu threshold.
+    // This path runs only after primary OCR returns no text, so ordinary
+    // pages do not pay this extra CPU cost. The source photo remains intact,
+    // and the controller still falls back to the original image if OCR is
+    // empty after this enhanced attempt.
+    image = _correctIllumination(image);
+
     image = img.contrast(image, contrast: 70);
     image = img.convolution(
       image,
